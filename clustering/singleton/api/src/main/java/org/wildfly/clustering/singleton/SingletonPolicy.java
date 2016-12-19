@@ -36,5 +36,20 @@ public interface SingletonPolicy {
      */
     @Deprecated String CAPABILITY_NAME = SingletonRequirement.SINGLETON_POLICY.getName();
 
+    /**
+     * Creates a singleton service builder.
+     * @param name the name of the service
+     * @param service the service to run when elected as the primary node
+     * @return a builder
+     */
     <T> Builder<T> createSingletonServiceBuilder(ServiceName name, Service<T> service);
+
+    /**
+     * Creates a singleton service builder.
+     * @param name the name of the service
+     * @param primaryService the service to run when elected as the primary node
+     * @param backupService the service to run when not elected as the primary node
+     * @return a builder
+     */
+    <T> Builder<T> createSingletonServiceBuilder(ServiceName name, Service<T> primaryService, Service<T> backupService);
 }

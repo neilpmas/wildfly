@@ -22,12 +22,14 @@
 
 package org.wildfly.extension.messaging.activemq.logging;
 
+import static org.jboss.logging.Logger.Level.DEBUG;
 import static org.jboss.logging.Logger.Level.ERROR;
 import static org.jboss.logging.Logger.Level.INFO;
 import static org.jboss.logging.Logger.Level.WARN;
 import static org.jboss.logging.annotations.Message.INHERIT;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 import javax.jms.IllegalStateRuntimeException;
@@ -51,6 +53,7 @@ import org.jboss.modules.ModuleLoadException;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.StartException;
+import org.jboss.weld.exceptions.IllegalArgumentException;
 
 /**
  * Date: 10.06.2011
@@ -819,4 +822,25 @@ public interface MessagingLogger extends BasicLogger {
     @Message(id = 87, value = "Unable to load connector service factory class: %s")
     OperationFailedException unableToLoadConnectorServiceFactoryClass(String factroyClass);
 
+    @Message(id = 88, value = "%s is an invalid value for parameter %s, it should be multiple of %s")
+    OperationFailedException invalidModularParameterValue(long size, String parameterName, long modular);
+
+    @LogMessage(level = WARN)
+    @Message(id = 89, value = "Resource at %s is not correctly configured: when its attribute %s is defined, the other attributes %s will not be taken into account")
+    void invalidConfiguration(PathAddress address, String definedAttribute, List<String> otherAttributes);
+
+    @Message(id = 90, value = "The Elytron security domain cannot be null")
+    IllegalArgumentException invalidNullSecurityDomain();
+
+    @LogMessage(level = DEBUG)
+    @Message(id = 91, value = "Failed to authenticate username %s. Exception message: %s")
+    void failedAuthenticationWithException(@Cause final Throwable cause, final String username, final String message);
+
+    @LogMessage(level = DEBUG)
+    @Message(id = 92, value = "Failed to authenticate username %s: cannot verify username/password pair")
+    void failedAuthentication(final String username);
+
+    @LogMessage(level = DEBUG)
+    @Message(id = 93, value = "Failed to authorize username %s: missing permissions")
+    void failedAuthorization(final String username);
 }

@@ -24,10 +24,9 @@ package org.jboss.as.clustering.infinispan.subsystem;
 
 import java.util.Arrays;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.Operations;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
 import org.jboss.as.clustering.controller.transform.OperationTransformer;
@@ -60,7 +59,7 @@ public class BinaryTableResourceDefinition extends TableResourceDefinition {
         Attribute(String name, ModelType type, ModelNode defaultValue) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDefaultValue(defaultValue)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
@@ -84,7 +83,7 @@ public class BinaryTableResourceDefinition extends TableResourceDefinition {
                     ModelNode value = new ModelNode();
                     for (Class<? extends org.jboss.as.clustering.controller.Attribute> attributeClass : Arrays.asList(Attribute.class, TableResourceDefinition.Attribute.class, TableResourceDefinition.ColumnAttribute.class)) {
                         for (org.jboss.as.clustering.controller.Attribute attribute : attributeClass.getEnumConstants()) {
-                            String name = attribute.getDefinition().getName();
+                            String name = attribute.getName();
                             if (operation.hasDefined(name)) {
                                 value.get(name).set(operation.get(name));
                             }
@@ -119,8 +118,7 @@ public class BinaryTableResourceDefinition extends TableResourceDefinition {
                 .addAttributes(TableResourceDefinition.Attribute.class)
                 .addAttributes(TableResourceDefinition.ColumnAttribute.class)
                 ;
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new BinaryTableBuilderFactory());
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(address -> new BinaryTableBuilder(address.getParent().getParent()));
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
     }
 }

@@ -86,6 +86,7 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.picketbox.util.KeyStoreUtil;
@@ -103,6 +104,7 @@ import org.picketbox.util.KeyStoreUtil;
         RemotingLoginModuleTestCase.SecurityDomainsSetup.class //
 })
 @RunAsClient
+@Ignore("WFLY-7510")
 public class RemotingLoginModuleTestCase {
     private static Logger LOGGER = Logger.getLogger(RemotingLoginModuleTestCase.class);
 
@@ -334,7 +336,7 @@ public class RemotingLoginModuleTestCase {
 
         public void setup(ManagementClient managementClient, String containerId) throws Exception {
             final List<ModelNode> updates = new LinkedList<ModelNode>();
-            LOGGER.info("Adding new socket binding and remoting connector");
+            LOGGER.trace("Adding new socket binding and remoting connector");
             // /socket-binding-group=standard-sockets/socket-binding=remoting-xxx:add(port=14447)
             ModelNode socketBindingModelNode = Util.createAddOperation(ADDR_SOCKET_BINDING);
             socketBindingModelNode.get(PORT).set(REMOTING_PORT_TEST);

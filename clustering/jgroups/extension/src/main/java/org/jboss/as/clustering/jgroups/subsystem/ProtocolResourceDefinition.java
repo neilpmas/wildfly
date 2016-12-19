@@ -29,8 +29,8 @@ import org.jboss.as.clustering.controller.ChildResourceDefinition;
 import org.jboss.as.clustering.controller.CommonUnaryRequirement;
 import org.jboss.as.clustering.controller.Operations;
 import org.jboss.as.clustering.controller.ResourceServiceBuilderFactory;
-import org.jboss.as.clustering.controller.transform.LegacyPropertyWriteOperationTransformer;
 import org.jboss.as.clustering.controller.transform.LegacyPropertyMapGetOperationTransformer;
+import org.jboss.as.clustering.controller.transform.LegacyPropertyWriteOperationTransformer;
 import org.jboss.as.clustering.controller.transform.SimpleOperationTransformer;
 import org.jboss.as.clustering.controller.validation.ModuleIdentifierValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.ParameterValidatorBuilder;
@@ -74,6 +74,7 @@ public abstract class ProtocolResourceDefinition extends ChildResourceDefinition
 
     enum Capability implements org.jboss.as.clustering.controller.Capability {
         SOCKET_BINDING("org.wildfly.clustering.protocol.socket-binding"),
+        DATA_SOURCE("org.wildfly.clustering.protocol.data-source"),
         ;
         private final RuntimeCapability<Void> definition;
 
@@ -88,17 +89,21 @@ public abstract class ProtocolResourceDefinition extends ChildResourceDefinition
 
         @Override
         public RuntimeCapability<Void> resolve(PathAddress address) {
-            PathAddress stackAddress = address.getParent();
-            return this.definition.fromBaseCapability(stackAddress.getLastElement().getValue() + "." + address.getLastElement().getValue());
+            return this.definition.fromBaseCapability(address.getParent().getLastElement().getValue() + "." + address.getLastElement().getValue());
         }
     }
 
     enum Attribute implements org.jboss.as.clustering.controller.Attribute {
+        DATA_SOURCE("data-source", ModelType.STRING, new CapabilityReference(Capability.DATA_SOURCE, CommonUnaryRequirement.DATA_SOURCE)),
         SOCKET_BINDING(ModelDescriptionConstants.SOCKET_BINDING, ModelType.STRING, SensitiveTargetAccessConstraintDefinition.SOCKET_BINDING_REF, new CapabilityReference(Capability.SOCKET_BINDING, CommonUnaryRequirement.SOCKET_BINDING)),
         MODULE(ModelDescriptionConstants.MODULE, ModelType.STRING, new ModelNode(ProtocolConfiguration.DEFAULT_MODULE.getName()), new ModuleIdentifierValidatorBuilder()),
         PROPERTIES(ModelDescriptionConstants.PROPERTIES),
         ;
         private final AttributeDefinition definition;
+
+        Attribute(String name, ModelType type, CapabilityReferenceRecorder reference) {
+            this.definition = createBuilder(name, type, null).setCapabilityReference(reference).build();
+        }
 
         Attribute(String name, ModelType type, ModelNode defaultValue, ParameterValidatorBuilder validatorBuilder) {
             SimpleAttributeDefinitionBuilder builder = createBuilder(name, type, defaultValue);
@@ -144,7 +149,7 @@ public abstract class ProtocolResourceDefinition extends ChildResourceDefinition
     static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue) {
         return new SimpleAttributeDefinitionBuilder(name, type)
                 .setAllowExpression(true)
-                .setAllowNull(true)
+                .setRequired(false)
                 .setDefaultValue(defaultValue)
                 .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
         ;
@@ -155,6 +160,9 @@ public abstract class ProtocolResourceDefinition extends ChildResourceDefinition
      */
     @SuppressWarnings("deprecation")
     static void addTransformations(ModelVersion version, ResourceTransformationDescriptionBuilder builder) {
+        if (JGroupsModel.VERSION_4_1_0.requiresTransformation(version)) {
+            builder.getAttributeBuilder().addRejectCheck(RejectAttributeChecker.DEFINED, Attribute.DATA_SOURCE.getDefinition()).end();
+        }
 
         if (JGroupsModel.VERSION_3_0_0.requiresTransformation(version)) {
             AttributeConverter typeConverter = new AttributeConverter.DefaultAttributeConverter() {

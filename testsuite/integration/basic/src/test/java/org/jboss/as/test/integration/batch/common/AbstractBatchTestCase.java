@@ -22,6 +22,8 @@
 
 package org.jboss.as.test.integration.batch.common;
 
+import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
+
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URL;
@@ -42,14 +44,14 @@ import org.jboss.as.test.integration.common.HttpRequest;
 import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.dmr.ModelNode;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
+import org.jboss.shrinkwrap.api.asset.Asset;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
+import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.descriptor.api.Descriptors;
 import org.jboss.shrinkwrap.descriptor.api.spec.se.manifest.ManifestDescriptor;
 import org.junit.Assert;
-
-import static org.jboss.as.test.shared.integration.ejb.security.PermissionUtils.createPermissionsXmlAsset;
 
 /**
  * @author <a href="mailto:jperkins@redhat.com">James R. Perkins</a>
@@ -68,13 +70,58 @@ public abstract class AbstractBatchTestCase {
                                 .exportAsString()))
                 .addAsManifestResource(createPermissionsXmlAsset(new PropertyPermission("ts.timeout.factor", "read")), "permissions.xml");
         for (String jobXml : jobXmls) {
-            deployment.addAsWebInfResource(pkg, jobXml, "classes/META-INF/batch-jobs/" + jobXml);
+            addJobXml(pkg, deployment, jobXml);
         }
         return deployment;
     }
 
     protected static String performCall(final String url) throws ExecutionException, IOException, TimeoutException {
-        return HttpRequest.get(url, 10, TimeUnit.MINUTES); // TODO (jrp) way to long only set for debugging
+        return performCall(url, 10);
+    }
+
+    protected static String performCall(final String url, final int timeout) throws ExecutionException, IOException, TimeoutException {
+        return HttpRequest.get(url, TimeoutUtil.adjust(timeout), TimeUnit.SECONDS);
+    }
+
+    protected static WebArchive addJobXml(final Package pkg, final WebArchive deployment, final String jobXml) {
+        return addJobXml(pkg, deployment, jobXml, jobXml);
+    }
+
+    protected static WebArchive addJobXml(final Package pkg, final WebArchive deployment, final String fileName, final String jobXml) {
+        return deployment.addAsWebInfResource(pkg, fileName, "classes/META-INF/batch-jobs/" + jobXml);
+    }
+
+    protected static WebArchive addJobXml(final WebArchive deployment, final Asset asset, final String jobXml) {
+        return deployment.addAsWebInfResource(asset, "classes/META-INF/batch-jobs/" + jobXml);
+    }
+
+    protected static WebArchive addJobXml(final WebArchive deployment, final String jobName) {
+        return deployment.addAsWebInfResource(createJobXml(jobName), "classes/META-INF/batch-jobs/" + jobName + ".xml");
+    }
+
+    protected static JavaArchive addJobXml(final JavaArchive deployment, final String jobName) {
+        return deployment.addAsResource(createJobXml(jobName), "META-INF/batch-jobs/" + jobName + ".xml");
+    }
+
+    static Asset createJobXml(final String jobName) {
+        final String xml = "<job id=\"" + jobName + "\" xmlns=\"http://xmlns.jcp.org/xml/ns/javaee\" version=\"1.0\">\n" +
+                "    <step id=\"step1\">\n" +
+                "        <chunk item-count=\"3\">\n" +
+                "            <reader ref=\"countingItemReader\">\n" +
+                "                <properties>\n" +
+                "                    <property name=\"reader.start\" value=\"#{jobParameters['reader.start']}\"/>\n" +
+                "                    <property name=\"reader.end\" value=\"#{jobParameters['reader.end']}\"/>\n" +
+                "                </properties>\n" +
+                "            </reader>\n" +
+                "            <writer ref=\"countingItemWriter\">\n" +
+                "                <properties>\n" +
+                "                    <property name=\"writer.sleep.time\" value=\"#{jobParameters['writer.sleep.time']}\"/>\n" +
+                "                </properties>\n" +
+                "            </writer>\n" +
+                "        </chunk>\n" +
+                "    </step>\n" +
+                "</job>";
+        return new StringAsset(xml);
     }
 
     public static class UrlBuilder {

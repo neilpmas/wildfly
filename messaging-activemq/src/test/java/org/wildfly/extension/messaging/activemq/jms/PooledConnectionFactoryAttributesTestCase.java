@@ -34,6 +34,8 @@ public class PooledConnectionFactoryAttributesTestCase extends AttributesTestBas
         UNSUPPORTED_ACTIVEMQ_RA_PROPERTIES.add("useMaskedPassword");
 
         UNSUPPORTED_ACTIVEMQ_RA_PROPERTIES.add("connectionPoolName");
+        UNSUPPORTED_ACTIVEMQ_RA_PROPERTIES.add("deserializationBlackList");
+        UNSUPPORTED_ACTIVEMQ_RA_PROPERTIES.add("deserializationWhiteList");
 
         KNOWN_ATTRIBUTES = new TreeSet<String>();
         // these are supported but it is not found by JavaBeans introspector because of the type
@@ -41,7 +43,7 @@ public class PooledConnectionFactoryAttributesTestCase extends AttributesTestBas
         KNOWN_ATTRIBUTES.add(Pooled.SETUP_ATTEMPTS_PROP_NAME);
         KNOWN_ATTRIBUTES.add(Pooled.SETUP_INTERVAL_PROP_NAME);
         KNOWN_ATTRIBUTES.add(Pooled.USE_JNDI_PROP_NAME);
-
+        KNOWN_ATTRIBUTES.add(Pooled.REBALANCE_CONNECTIONS_PROP_NAME);
     }
 
     @Test

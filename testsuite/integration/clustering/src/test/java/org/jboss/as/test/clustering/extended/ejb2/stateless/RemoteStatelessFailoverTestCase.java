@@ -48,6 +48,7 @@ import org.jboss.as.test.clustering.EJBClientContextSelector;
 import org.jboss.as.test.clustering.NodeNameGetter;
 import org.jboss.as.test.clustering.ejb.EJBDirectory;
 import org.jboss.as.test.clustering.ejb.RemoteEJBDirectory;
+import org.jboss.as.test.shared.TestSuiteEnvironment;
 import org.jboss.ejb.client.ContextSelector;
 import org.jboss.ejb.client.EJBClientContext;
 import org.jboss.logging.Logger;
@@ -79,7 +80,7 @@ public class RemoteStatelessFailoverTestCase {
     private static final String ARCHIVE_NAME_DD = "stateless-ejb2-failover-dd-test";
 
     private static final Integer PORT_2 = 8180;
-    private static final String HOST_2 = System.getProperty("node1");
+    private static final String HOST_2 = TestSuiteEnvironment.getServerAddressNode1();
     private static final String REMOTE_PORT_PROPERTY_NAME = "remote.connection.default.port";
     private static final String REMOTE_HOST_PROPERTY_NAME = "remote.connection.default.host";
 
@@ -151,7 +152,6 @@ public class RemoteStatelessFailoverTestCase {
         final JavaArchive jar = ShrinkWrap.create(JavaArchive.class, ARCHIVE_NAME + ".jar");
         jar.addClasses(StatelessBeanBase.class, StatelessBean.class, StatelessRemote.class, StatelessRemoteHome.class);
         jar.addClass(NodeNameGetter.class);
-        log.info(jar.toString(true));
         return jar;
     }
 
@@ -160,7 +160,6 @@ public class RemoteStatelessFailoverTestCase {
         jar.addClasses(StatelessBeanBase.class, StatelessBeanDD.class, StatelessRemote.class, StatelessRemoteHome.class);
         jar.addClass(NodeNameGetter.class);
         jar.addAsManifestResource(RemoteStatelessFailoverTestCase.class.getPackage(), "ejb-jar.xml", "ejb-jar.xml");
-        log.info(jar.toString(true));
         return jar;
     }
 
@@ -250,7 +249,7 @@ public class RemoteStatelessFailoverTestCase {
             StatelessRemote bean = home.create();
 
             String node = bean.getNodeName();
-            log.info("Node called : " + node);
+            log.trace("Node called : " + node);
 
             validateBalancing(bean, numberOfCalls, numberOfServers, serversProccessedAtLeast);
 
@@ -261,7 +260,7 @@ public class RemoteStatelessFailoverTestCase {
 
             bean = home.create();
             node = bean.getNodeName();
-            log.info("Node called : " + node);
+            log.trace("Node called : " + node);
 
             validateBalancing(bean, numberOfCalls, numberOfServers, serversProccessedAtLeast);
         } finally {
@@ -300,7 +299,7 @@ public class RemoteStatelessFailoverTestCase {
         }
         Assert.assertTrue("Minimal number of calls done to all servers have to be " + minPercentage * numCalls + " but was " + minNumOfProcessedCalls,
                 minPercentage * numCalls <= minNumOfProcessedCalls);
-        log.info("All " + expectedServers + " servers processed at least " + minNumOfProcessedCalls + " of calls");
+        log.trace("All " + expectedServers + " servers processed at least " + minNumOfProcessedCalls + " of calls");
     }
 
     private void undeployAll() {

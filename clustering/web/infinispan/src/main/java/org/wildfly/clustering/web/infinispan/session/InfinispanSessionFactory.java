@@ -50,6 +50,7 @@ public class InfinispanSessionFactory<V, L> implements SessionFactory<Infinispan
     @Override
     public Map.Entry<InfinispanSessionMetaData<L>, V> createValue(String id, Void context) {
         InfinispanSessionMetaData<L> metaDataValue = this.metaDataFactory.createValue(id, context);
+        if (metaDataValue == null) return null;
         V attributesValue = this.attributesFactory.createValue(id, context);
         return new SimpleImmutableEntry<>(metaDataValue, attributesValue);
     }
@@ -92,12 +93,16 @@ public class InfinispanSessionFactory<V, L> implements SessionFactory<Infinispan
     }
 
     @Override
-    public void evict(String id) {
+    public boolean evict(String id) {
         try {
-            this.metaDataFactory.evict(id);
-            this.attributesFactory.evict(id);
+            boolean evicted = this.metaDataFactory.evict(id);
+            if (evicted) {
+                this.attributesFactory.evict(id);
+            }
+            return evicted;
         } catch (Throwable e) {
             InfinispanWebLogger.ROOT_LOGGER.failedToPassivateSession(e, id);
+            return false;
         }
     }
 
@@ -120,9 +125,7 @@ public class InfinispanSessionFactory<V, L> implements SessionFactory<Infinispan
     }
 
     @Override
-    public ImmutableSession createImmutableSession(String id, Map.Entry<InfinispanSessionMetaData<L>, V> entry) {
-        ImmutableSessionMetaData metaData = this.metaDataFactory.createImmutableSessionMetaData(id, entry.getKey());
-        ImmutableSessionAttributes attributes = this.attributesFactory.createImmutableSessionAttributes(id, entry.getValue());
+    public ImmutableSession createImmutableSession(String id, ImmutableSessionMetaData metaData, ImmutableSessionAttributes attributes) {
         return new InfinispanImmutableSession(id, metaData, attributes);
     }
 }

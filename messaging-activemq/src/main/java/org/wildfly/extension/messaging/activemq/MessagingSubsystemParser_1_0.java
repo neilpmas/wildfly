@@ -47,9 +47,6 @@ import org.wildfly.extension.messaging.activemq.ha.SharedStoreColocatedDefinitio
 import org.wildfly.extension.messaging.activemq.ha.SharedStoreMasterDefinition;
 import org.wildfly.extension.messaging.activemq.ha.SharedStoreSlaveDefinition;
 import org.wildfly.extension.messaging.activemq.jms.ConnectionFactoryAttributes;
-import org.wildfly.extension.messaging.activemq.jms.ConnectionFactoryDefinition;
-import org.wildfly.extension.messaging.activemq.jms.JMSQueueDefinition;
-import org.wildfly.extension.messaging.activemq.jms.JMSTopicDefinition;
 import org.wildfly.extension.messaging.activemq.jms.PooledConnectionFactoryDefinition;
 import org.wildfly.extension.messaging.activemq.jms.bridge.JMSBridgeDefinition;
 import org.wildfly.extension.messaging.activemq.jms.legacy.LegacyConnectionFactoryDefinition;
@@ -74,7 +71,7 @@ public class MessagingSubsystemParser_1_0 implements XMLStreamConstants, XMLElem
     static {
         xmlDescription = builder(MessagingSubsystemRootResourceDefinition.INSTANCE)
                 .addChild(
-                        builder(ServerDefinition.INSTANCE)
+                        builder(MessagingExtension.SERVER_PATH)
                                 .addAttributes(
                                         // no attribute groups
                                         ServerDefinition.PERSISTENCE_ENABLED,
@@ -251,7 +248,7 @@ public class MessagingSubsystemParser_1_0 implements XMLStreamConstants, XMLElem
                                                         PathDefinition.PATHS.get(CommonAttributes.PAGING_DIRECTORY),
                                                         PathDefinition.RELATIVE_TO))
                                 .addChild(
-                                        builder(QueueDefinition.INSTANCE)
+                                        builder(MessagingExtension.QUEUE_PATH)
                                                 .addAttributes(
                                                         QueueDefinition.ADDRESS,
                                                         CommonAttributes.DURABLE,
@@ -339,7 +336,7 @@ public class MessagingSubsystemParser_1_0 implements XMLStreamConstants, XMLElem
                                         builder(BroadcastGroupDefinition.INSTANCE)
                                                 .addAttributes(
                                                         CommonAttributes.SOCKET_BINDING,
-                                                        CommonAttributes.JGROUPS_STACK,
+                                                        BroadcastGroupDefinition.JGROUPS_STACK,
                                                         CommonAttributes.JGROUPS_CHANNEL,
                                                         BroadcastGroupDefinition.BROADCAST_PERIOD,
                                                         BroadcastGroupDefinition.CONNECTOR_REFS))
@@ -347,7 +344,7 @@ public class MessagingSubsystemParser_1_0 implements XMLStreamConstants, XMLElem
                                         builder(DiscoveryGroupDefinition.INSTANCE)
                                                 .addAttributes(
                                                         CommonAttributes.SOCKET_BINDING,
-                                                        CommonAttributes.JGROUPS_STACK,
+                                                        DiscoveryGroupDefinition.JGROUPS_STACK,
                                                         CommonAttributes.JGROUPS_CHANNEL,
                                                         DiscoveryGroupDefinition.REFRESH_TIMEOUT,
                                                         DiscoveryGroupDefinition.INITIAL_WAIT_TIMEOUT))
@@ -421,19 +418,19 @@ public class MessagingSubsystemParser_1_0 implements XMLStreamConstants, XMLElem
                                                         CommonAttributes.FACTORY_CLASS,
                                                         CommonAttributes.PARAMS))
                                 .addChild(
-                                        builder(JMSQueueDefinition.INSTANCE)
+                                        builder(MessagingExtension.JMS_QUEUE_PATH)
                                                 .addAttributes(
                                                         CommonAttributes.DESTINATION_ENTRIES,
                                                         CommonAttributes.SELECTOR,
                                                         CommonAttributes.DURABLE,
                                                         CommonAttributes.LEGACY_ENTRIES))
                                 .addChild(
-                                        builder(JMSTopicDefinition.INSTANCE)
+                                        builder(MessagingExtension.JMS_TOPIC_PATH)
                                                 .addAttributes(
                                                         CommonAttributes.DESTINATION_ENTRIES,
                                                         CommonAttributes.LEGACY_ENTRIES))
                                 .addChild(
-                                        builder(ConnectionFactoryDefinition.INSTANCE)
+                                        builder(MessagingExtension.CONNECTION_FACTORY_PATH)
                                                 .addAttributes(
                                                         ConnectionFactoryAttributes.Common.ENTRIES,
                                                         // common

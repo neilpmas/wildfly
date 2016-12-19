@@ -60,9 +60,13 @@
                 template="configuration/standalone/template.xml"
                 subsystems="configuration/standalone/subsystems-full-ha.xml"
                 output-file="docs/examples/configs/standalone-ec2-full-ha.xml">
-            <property name="jgroups.supplement" value="ec2" />
-            <property name="mod_cluster.supplement" value="no-multicast" />
-        </standalone>
+                <property name="jgroups.supplement" value="ec2" />
+                <property name="mod_cluster.supplement" value="no-multicast" />
+       </standalone>
+        <standalone
+                template="configuration/standalone/template-elytron.xml"
+                subsystems="configuration/standalone/subsystems-elytron.xml"
+                output-file="standalone/configuration/standalone-elytron.xml"/>
         <standalone
                 template="configuration/standalone/template.xml"
                 subsystems="configuration/standalone/subsystems-ha.xml"
@@ -124,6 +128,10 @@
                 template="configuration/domain/template.xml"
                 subsystems="configuration/domain/subsystems.xml"
                 output-file="domain/configuration/domain.xml"/>
+        <domain
+                template="configuration/domain/template.xml"
+                subsystems="configuration/domain/subsystems-elytron.xml"
+                output-file="domain/configuration/domain-elytron.xml"/>
         <host
                 template="configuration/host/host.xml"
                 subsystems="configuration/host/subsystems.xml"
@@ -136,14 +144,17 @@
                 template="configuration/host/host-slave.xml"
                 subsystems="configuration/host/subsystems.xml"
                 output-file="domain/configuration/host-slave.xml" />
-
+        <host
+                template="configuration/host/host-elytron.xml"
+                subsystems="configuration/host/subsystems-elytron.xml"
+                output-file="domain/configuration/host-elytron.xml" />
     </config>
     <copy-artifacts>
         <copy-artifact artifact="org.jboss.resteasy:resteasy-spring" to-location="modules/system/layers/base/org/jboss/resteasy/resteasy-spring/main/bundled/resteasy-spring-jar/"/>
         <copy-artifact artifact="org.jboss.seam.integration:jboss-seam-int-jbossas" to-location="modules/system/layers/base/org/jboss/integration/ext-content/main/bundled/jboss-seam-int.jar"/>
         <copy-artifact artifact="org.wildfly:wildfly-client-all" to-location="bin/client/jboss-client.jar"/>
         <copy-artifact artifact="org.wildfly.core:wildfly-cli::client" to-location="bin/client/jboss-cli-client.jar"/>
-        <copy-artifact artifact="org.apache.activemq:artemis-native" to-location="modules/system/layers/base/org/apache/activemq/artemis/main" extract="true" >
+        <copy-artifact artifact="org.apache.activemq:artemis-native" to-location="modules/system/layers/base/org/apache/activemq/artemis/journal/main" extract="true" >
             <filter pattern="lib/*" include="true" />
             <filter pattern="*" include="false"/>
         </copy-artifact>

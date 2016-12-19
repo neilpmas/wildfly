@@ -52,13 +52,13 @@ import org.jboss.ejb.client.remoting.RemotingConnectionEJBReceiver;
 import org.jboss.logging.Logger;
 import org.jboss.remoting3.Connection;
 import org.jboss.remoting3.Endpoint;
-import org.jboss.remoting3.Remoting;
-import org.jboss.remoting3.remote.HttpUpgradeConnectionProviderFactory;
-import org.jboss.remoting3.remote.RemoteConnectionProviderFactory;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.Assert;
+import org.wildfly.security.auth.client.AuthenticationConfiguration;
+import org.wildfly.security.auth.client.AuthenticationContext;
+import org.wildfly.security.auth.client.MatchRule;
 import org.xnio.IoFuture;
 import org.xnio.OptionMap;
 import org.xnio.Options;
@@ -84,7 +84,6 @@ public abstract class AnnSBTest {
            .addClass(AnnOnlyCheckSFSBForInjection.class);
         jar.addAsManifestResource(AnnSBTest.class.getPackage(), "jboss-ejb3.xml", "jboss-ejb3.xml");
         jar.addPackage(CommonCriteria.class.getPackage());
-        LOG.info(jar.toString(true));
         return jar;
     }
 
@@ -97,7 +96,7 @@ public abstract class AnnSBTest {
            SimpleAuthorizationRemote.class.getName(),
            isBeanClassStatefull(SB_CLASS));
 
-        log.info("JNDI name=" + myContext);
+        log.trace("JNDI name=" + myContext);
 
         return (SimpleAuthorizationRemote) ctx.lookup(myContext);
     }
@@ -287,9 +286,7 @@ public abstract class AnnSBTest {
 
     protected ContextSelector<EJBClientContext> setupEJBClientContextSelector(String username, String password) throws IOException {
         // create the endpoint
-        final Endpoint endpoint = Remoting.createEndpoint("remoting-test", OptionMap.create(Options.THREAD_DAEMON, true));
-        endpoint.addConnectionProvider("remote", new RemoteConnectionProviderFactory(), OptionMap.create(Options.SSL_ENABLED, false));
-        endpoint.addConnectionProvider("http-remoting", new HttpUpgradeConnectionProviderFactory(), OptionMap.create(Options.SSL_ENABLED, false));
+        final Endpoint endpoint = Endpoint.getCurrent();
         final URI connectionURI = managementClient.getRemoteEjbURL();
 
         OptionMap.Builder builder = OptionMap.builder().set(Options.SASL_POLICY_NOANONYMOUS, true);
@@ -300,7 +297,14 @@ public abstract class AnnSBTest {
             builder.set(Options.SASL_MECHANISMS, Sequence.of("JBOSS-LOCAL-USER"));
         }
 
-        final IoFuture<Connection> futureConnection = endpoint.connect(connectionURI, builder.getMap(), new AuthenticationCallbackHandler(username, password));
+        final AuthenticationContext authenticationContext = AuthenticationContext.empty()
+                .with(
+                        MatchRule.ALL,
+                        AuthenticationConfiguration.EMPTY
+                                .useCallbackHandler(new AuthenticationCallbackHandler(username, password))
+                                .allowSaslMechanisms("JBOSS-LOCAL-USER", "DIGEST-MD5")
+                                .useProvidersFromClassLoader(AnnSBTest.class.getClassLoader()));
+        final IoFuture<Connection> futureConnection = endpoint.connect(connectionURI, builder.getMap(), authenticationContext);
         // wait for the connection to be established
         final Connection connection = IoFutureHelper.get(futureConnection, 5000, TimeUnit.MILLISECONDS);
         // create a remoting EJB receiver for this connection

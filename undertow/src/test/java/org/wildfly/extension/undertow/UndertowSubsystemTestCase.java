@@ -29,9 +29,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-import io.undertow.predicate.Predicates;
-import io.undertow.server.HttpHandler;
-import io.undertow.server.handlers.PathHandler;
+import javax.net.ssl.SSLContext;
+
+import org.jboss.as.controller.ControlledProcessStateService;
 import org.jboss.as.controller.RunningMode;
 import org.jboss.as.controller.capability.registry.RuntimeCapabilityRegistry;
 import org.jboss.as.controller.extension.ExtensionRegistry;
@@ -49,6 +49,7 @@ import org.jboss.as.subsystem.test.AdditionalInitialization;
 import org.jboss.as.subsystem.test.ControllerInitializer;
 import org.jboss.as.subsystem.test.KernelServices;
 import org.jboss.as.subsystem.test.KernelServicesBuilder;
+import org.jboss.msc.service.AbstractService;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceTarget;
 import org.junit.Assert;
@@ -57,10 +58,15 @@ import org.wildfly.extension.io.BufferPoolService;
 import org.wildfly.extension.io.IOServices;
 import org.wildfly.extension.io.WorkerService;
 import org.wildfly.extension.undertow.filters.FilterService;
+import org.wildfly.security.auth.server.HttpAuthenticationFactory;
 import org.xnio.OptionMap;
 import org.xnio.Options;
 import org.xnio.Pool;
 import org.xnio.XnioWorker;
+
+import io.undertow.predicate.Predicates;
+import io.undertow.server.HttpHandler;
+import io.undertow.server.handlers.PathHandler;
 
 /**
  * This is the barebone test example that tests subsystem
@@ -94,6 +100,17 @@ public class UndertowSubsystemTestCase extends AbstractUndertowSubsystemTestCase
         properties.put("jboss.server.server.dir", System.getProperty("java.io.tmpdir"));
         properties.put("server.data.dir", System.getProperty("java.io.tmpdir"));
         return properties;
+    }
+
+    @Test
+    @Override
+    public void testSchemaOfSubsystemTemplates() throws Exception {
+        super.testSchemaOfSubsystemTemplates();
+    }
+
+    @Override
+    protected KernelServices standardSubsystemTest(String configId, boolean compareXml) throws Exception {
+        return super.standardSubsystemTest(configId, false);
     }
 
     @Test
@@ -151,6 +168,8 @@ public class UndertowSubsystemTestCase extends AbstractUndertowSubsystemTestCase
                 capabilities.put(buildDynamicCapabilityName(ListenerResourceDefinition.SOCKET_CAPABILITY, entry),
                         SocketBinding.class);
             }
+            capabilities.put(buildDynamicCapabilityName("org.wildfly.security.http-authentication-factory", "elytron-factory"), HttpAuthenticationFactory.class);
+            capabilities.put(buildDynamicCapabilityName("org.wildfly.security.ssl-context", "TestContext"), SSLContext.class);
             registerServiceCapabilities(capabilityRegistry, capabilities);
 
         }
@@ -192,6 +211,9 @@ public class UndertowSubsystemTestCase extends AbstractUndertowSubsystemTestCase
             target.addService(IOServices.WORKER.append("non-default"),
                     new WorkerService(OptionMap.builder().set(Options.WORKER_IO_THREADS, 2).getMap()))
                     .setInitialMode(ServiceController.Mode.ACTIVE).install();
+
+            target.addService(ControlledProcessStateService.SERVICE_NAME,new AbstractService<ControlledProcessStateService>() {
+            }).install();
 
             target.addService(IOServices.BUFFER_POOL.append("default"), new BufferPoolService(2048, 2048, true))
                     .setInitialMode(ServiceController.Mode.ACTIVE).install();

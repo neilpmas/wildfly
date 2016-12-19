@@ -39,6 +39,7 @@ public interface Constants {
     String SETTING = "setting";
     String SECURITY_REALM = "security-realm";
     String SOCKET_BINDING = "socket-binding";
+    String SSL_CONTEXT = "ssl-context";
     String PATH = "path";
     String HTTP_LISTENER = "http-listener";
     String HTTPS_LISTENER = "https-listener";
@@ -148,7 +149,6 @@ public interface Constants {
     String MANAGEMENT_SOCKET_BINDING = "management-socket-binding";
     String ADVERTISE_SOCKET_BINDING = "advertise-socket-binding";
     String SECURITY_KEY = "security-key";
-    String ADVERTISE_MULTICAST_SOCKET_BINDING = "advertise-multicast-socket-binding";
     String ADVERTISE_PROTOCOL = "advertise-protocol";
     String ADVERTISE_PATH = "advertise-path";
     String ADVERTISE_FREQUENCY = "advertise-frequency";
@@ -222,6 +222,17 @@ public interface Constants {
     String MAX_AJP_PACKET_SIZE = "max-ajp-packet-size";
     String STATISTICS_ENABLED = "statistics-enabled";
     String DEFAULT_SECURITY_DOMAIN = "default-security-domain";
+    String DISABLE_FILE_WATCH_SERVICE = "disable-file-watch-service";
+    String PER_MESSAGE_DEFLATE = "per-message-deflate";
+    String DEFLATER_LEVEL = "deflater-level";
+    String MAX_RETRIES = "max-retries";
 
+    // Elytron Integration
+    String APPLICATION_SECURITY_DOMAIN = "application-security-domain";
+    String APPLICATION_SECURITY_DOMAINS = "application-security-domains";
+    String HTTP_AUTHENITCATION_FACTORY = "http-authentication-factory";
+    String OVERRIDE_DEPLOYMENT_CONFIG = "override-deployment-config";
+    String REFERENCING_DEPLOYMENTS = "referencing-deployments";
+    String SECURITY_DOMAIN = "security-domain";
 
 }

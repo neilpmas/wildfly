@@ -22,9 +22,8 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.SimpleAliasEntry;
 import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
@@ -59,7 +58,7 @@ public class CustomStoreResourceDefinition extends StoreResourceDefinition {
         Attribute(String name, ModelType type) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(false)
+                    .setRequired(true)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
         }
@@ -97,9 +96,8 @@ public class CustomStoreResourceDefinition extends StoreResourceDefinition {
                 .addAttributes(StoreResourceDefinition.Attribute.class)
                 .addRequiredSingletonChildren(StoreWriteThroughResourceDefinition.PATH)
                 ;
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new CustomStoreBuilderFactory());
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(address -> new CustomStoreBuilder(address.getParent()));
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         super.register(registration);
     }

@@ -26,6 +26,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.jboss.as.controller.AbstractAddStepHandler;
+import org.jboss.as.controller.ControlledProcessStateService;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.PathAddress;
@@ -40,11 +41,15 @@ import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceController;
 import org.jboss.msc.service.ServiceController.Mode;
 import org.jboss.msc.service.ServiceName;
+import org.wildfly.extension.requestcontroller.RequestController;
+import org.wildfly.extension.undertow.deployment.DefaultDeploymentMappingProvider;
 
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2013 Red Hat Inc.
  */
 class HostAdd extends AbstractAddStepHandler {
+
+    private static final String REQUEST_CONTROLLER_CAPABILITY = "org.wildfly.request-controller";
 
     static final HostAdd INSTANCE = new HostAdd();
 
@@ -57,8 +62,8 @@ class HostAdd extends AbstractAddStepHandler {
         final PathAddress address = context.getCurrentAddress();
         final PathAddress serverAddress = address.getParent();
         final PathAddress subsystemAddress = serverAddress.getParent();
-        final ModelNode subsystemModel = Resource.Tools.readModel(context.readResourceFromRoot(subsystemAddress, false), 1);
-        final ModelNode serverModel = Resource.Tools.readModel(context.readResourceFromRoot(serverAddress, false), 1);
+        final ModelNode subsystemModel = Resource.Tools.readModel(context.readResourceFromRoot(subsystemAddress, false), 0);
+        final ModelNode serverModel = Resource.Tools.readModel(context.readResourceFromRoot(serverAddress, false), 0);
 
         final String name = address.getLastElement().getValue();
         final List<String> aliases = HostDefinition.ALIAS.unwrap(context, model);
@@ -69,13 +74,15 @@ class HostAdd extends AbstractAddStepHandler {
         final boolean isDefaultHost = defaultServerName.equals(serverName) && name.equals(defaultHostName);
         final int defaultResponseCode = HostDefinition.DEFAULT_RESPONSE_CODE.resolveModelAttribute(context, model).asInt();
         final boolean enableConsoleRedirect = !HostDefinition.DISABLE_CONSOLE_REDIRECT.resolveModelAttribute(context, model).asBoolean();
+        DefaultDeploymentMappingProvider.instance().addMapping(defaultWebModule, serverName, name);
 
         final ServiceName virtualHostServiceName = UndertowService.virtualHostName(serverName, name);
 
         final Host service = new Host(name, aliases == null ? new LinkedList<>(): aliases, defaultWebModule, defaultResponseCode);
         final ServiceBuilder<Host> builder = context.getServiceTarget().addService(virtualHostServiceName, service)
                 .addDependency(UndertowService.SERVER.append(serverName), Server.class, service.getServerInjection())
-                .addDependency(UndertowService.UNDERTOW, UndertowService.class, service.getUndertowService());
+                .addDependency(UndertowService.UNDERTOW, UndertowService.class, service.getUndertowService())
+                .addDependency(ControlledProcessStateService.SERVICE_NAME, ControlledProcessStateService.class, service.getControlledProcessStateServiceInjectedValue());
 
         builder.setInitialMode(Mode.ON_DEMAND);
 
@@ -116,6 +123,10 @@ class HostAdd extends AbstractAddStepHandler {
                 .addDependency(UndertowService.SERVER.append(serverName), Server.class, service.getServer())
                 .addDependency(CommonWebServer.SERVICE_NAME)
                 .addDependency(virtualHostServiceName, Host.class, service.getHost());
+
+        if(context.hasOptionalCapability(REQUEST_CONTROLLER_CAPABILITY, null, null)) {
+            builder.addDependency(context.getCapabilityServiceName(REQUEST_CONTROLLER_CAPABILITY, RequestController.class), RequestController.class, service.getRequestControllerInjectedValue());
+        }
 
         if (aliases != null) {
             for (String alias : aliases) {

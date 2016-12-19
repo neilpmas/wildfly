@@ -59,7 +59,6 @@ import org.jboss.as.test.clustering.ejb.RemoteEJBDirectory;
 import org.jboss.as.test.shared.TimeoutUtil;
 import org.jboss.ejb.client.ContextSelector;
 import org.jboss.ejb.client.EJBClientContext;
-import org.jboss.logging.Logger;
 import org.jboss.shrinkwrap.api.Archive;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -76,7 +75,6 @@ import org.junit.runner.RunWith;
 @RunWith(Arquillian.class)
 @RunAsClient
 public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
-    private static final Logger log = Logger.getLogger(RemoteFailoverTestCase.class);
     private static final String MODULE_NAME = "remote-failover-test";
     private static final String CLIENT_PROPERTIES = "org/jboss/as/test/clustering/cluster/ejb/remote/jboss-ejb-client.properties";
     private static final String SECURE_CLIENT_PROPERTIES = "org/jboss/as/test/clustering/cluster/ejb/remote/jboss-ejb-client-secure.properties";
@@ -105,7 +103,6 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
         jar.addAsManifestResource(createPermissionsXmlAsset(
                 new PropertyPermission(NODE_NAME_PROPERTY, "read")
         ), "permissions.xml");
-        log.info(jar.toString(true));
         return jar;
     }
 
@@ -209,7 +206,6 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
             Result<Integer> result = bean.increment();
             String target = result.getNode();
             int count = 1;
-            System.out.println("Established weak affinity to " + target);
 
             Assert.assertEquals(count++, result.getValue().intValue());
 
@@ -244,7 +240,6 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
             // Bean may have acquired new weak affinity
             target = result.getNode();
             Assert.assertEquals(count++, result.getValue().intValue());
-            System.out.println("Reestablished weak affinity to " + target);
 
             // Bean should retain weak affinity for this node
             for (int i = 0; i < COUNT; ++i) {
@@ -277,7 +272,6 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
             // Bean may have acquired new weak affinity
             target = result.getNode();
             Assert.assertEquals(count++, result.getValue().intValue());
-            System.out.println("Reestablished weak affinity to " + target);
 
             // Bean should retain weak affinity for this node
             for (int i = 0; i < COUNT; ++i) {
@@ -290,10 +284,18 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
         }
     }
 
-    @InSequence(3)
     @Test
-    @Ignore("WFLY-3532")
-    public void testConcurrentFailover() throws Exception {
+    public void testGracefulShutdownConcurrentFailover() throws Exception {
+        this.testConcurrentFailover(new GracefulRestartLifecycle());
+    }
+
+    @Test
+    @Ignore("Needs graceful undeploy support")
+    public void testGracefulUndeployConcurrentFailover() throws Exception {
+        this.testConcurrentFailover(new RedeployLifecycle());
+    }
+
+    public void testConcurrentFailover(Lifecycle lifecycle) throws Exception {
         ContextSelector<EJBClientContext> selector = EJBClientContextSelector.setup(CLIENT_PROPERTIES);
         try (EJBDirectory directory = new RemoteEJBDirectory(MODULE_NAME)) {
             Incrementor bean = directory.lookupStateful(SlowToDestroyStatefulIncrementorBean.class, Incrementor.class);
@@ -310,7 +312,7 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
                 Future<?> future = executor.scheduleWithFixedDelay(new IncrementTask(bean, count, latch), 0, INVOCATION_WAIT, TimeUnit.MILLISECONDS);
                 latch.await();
 
-                undeploy(this.findDeployment(target));
+                lifecycle.stop(target);
 
                 future.cancel(false);
                 try {
@@ -319,28 +321,13 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
                     // Ignore
                 }
 
-                deploy(this.findDeployment(target));
-
-                latch = new CountDownLatch(1);
-                future = executor.scheduleWithFixedDelay(new IncrementTask(bean, count, latch), 0, INVOCATION_WAIT, TimeUnit.MILLISECONDS);
-                latch.await();
-
-                stop(this.findContainer(target));
-
-                future.cancel(false);
-                try {
-                    future.get();
-                } catch (CancellationException e) {
-                    // Ignore
-                }
-
-                start(this.findContainer(target));
+                lifecycle.start(target);
 
                 latch = new CountDownLatch(1);
                 future = executor.scheduleWithFixedDelay(new LookupTask(directory, SlowToDestroyStatefulIncrementorBean.class, latch), 0, INVOCATION_WAIT, TimeUnit.MILLISECONDS);
                 latch.await();
 
-                undeploy(this.findDeployment(target));
+                lifecycle.stop(target);
 
                 future.cancel(false);
                 try {
@@ -349,22 +336,7 @@ public class RemoteFailoverTestCase extends ClusterAbstractTestCase {
                     // Ignore
                 }
 
-                deploy(this.findDeployment(target));
-
-                latch = new CountDownLatch(1);
-                future = executor.scheduleWithFixedDelay(new LookupTask(directory, SlowToDestroyStatefulIncrementorBean.class, latch), 0, INVOCATION_WAIT, TimeUnit.MILLISECONDS);
-                latch.await();
-
-                stop(this.findContainer(target));
-
-                future.cancel(false);
-                try {
-                    future.get();
-                } catch (CancellationException e) {
-                    // Ignore
-                }
-
-                start(this.findContainer(target));
+                lifecycle.start(target);
             } finally {
                 executor.shutdownNow();
             }

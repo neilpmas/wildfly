@@ -22,8 +22,8 @@
 
 package org.wildfly.extension.clustering.singleton;
 
-import org.jboss.as.clustering.controller.CapabilityReference;
 import org.jboss.as.clustering.controller.ChildResourceDefinition;
+import org.jboss.as.clustering.controller.CapabilityReference;
 import org.jboss.as.clustering.controller.CommonUnaryRequirement;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.CapabilityReferenceRecorder;
@@ -71,11 +71,11 @@ public abstract class ElectionPolicyResourceDefinition extends ChildResourceDefi
         ;
         private final AttributeDefinition definition;
 
-        private Attribute(String name, String alternative) {
+        Attribute(String name, String alternative) {
             this.definition = createBuilder(name, alternative).build();
         }
 
-        private Attribute(String name, String alternative, CapabilityReferenceRecorder reference) {
+        Attribute(String name, String alternative, CapabilityReferenceRecorder reference) {
             this.definition = createBuilder(name, alternative)
                     .setCapabilityReference(reference)
                     .build();
@@ -89,7 +89,7 @@ public abstract class ElectionPolicyResourceDefinition extends ChildResourceDefi
         private static StringListAttributeDefinition.Builder createBuilder(String name, String alternative) {
             return new StringListAttributeDefinition.Builder(name)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setAlternatives(alternative)
                     ;
         }

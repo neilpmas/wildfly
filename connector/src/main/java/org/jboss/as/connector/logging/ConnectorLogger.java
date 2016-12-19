@@ -853,4 +853,10 @@ public interface ConnectorLogger extends BasicLogger {
     @LogMessage(level = INFO)
     @Message(id = 99, value = "Unbound non-transactional data source: %s")
     void unBoundNonJTADataSource(String jndiName);
+
+    @Message(id = 100, value = "Operation %s is not supported")
+    UnsupportedOperationException noSupportedOperation(String operation);
+
+    @Message(id = 101, value = "Thread pool: %s(type: %s) can not be added for workmanager: %s, only one thread pool is allowed for each type.")
+    OperationFailedException oneThreadPoolWorkManager(String threadPoolName, String threadPoolType, String workManagerName);
 }

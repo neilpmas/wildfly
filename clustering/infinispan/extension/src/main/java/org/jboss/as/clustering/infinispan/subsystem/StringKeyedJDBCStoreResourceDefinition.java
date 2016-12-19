@@ -26,10 +26,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.Operations;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.SimpleAliasEntry;
 import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
@@ -51,7 +50,6 @@ import org.jboss.as.controller.transform.ResourceTransformationContext;
 import org.jboss.as.controller.transform.ResourceTransformer;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
-import org.jboss.dmr.Property;
 
 /**
  * Resource description for the addressable resource and its legacy alias
@@ -107,10 +105,10 @@ public class StringKeyedJDBCStoreResourceDefinition extends JDBCStoreResourceDef
 
                     final ModelNode stringTableModel = Resource.Tools.readModel(resource.removeChild(StringTableResourceDefinition.PATH));
                     if (stringTableModel != null && stringTableModel.isDefined()) {
-                        model.get(DeprecatedAttribute.TABLE.getDefinition().getName()).set(stringTableModel);
+                        model.get(DeprecatedAttribute.TABLE.getName()).set(stringTableModel);
                     }
 
-                    final ModelNode properties = model.remove(StoreResourceDefinition.Attribute.PROPERTIES.getDefinition().getName());
+                    final ModelNode properties = model.remove(StoreResourceDefinition.Attribute.PROPERTIES.getName());
                     final ResourceTransformationContext childContext = context.addTransformedResource(PathAddress.EMPTY_ADDRESS, resource);
 
                     LegacyPropertyResourceTransformer.transformPropertiesToChildrenResources(properties, address, childContext);
@@ -145,8 +143,8 @@ public class StringKeyedJDBCStoreResourceDefinition extends JDBCStoreResourceDef
             ModelNode table = Operations.getAttributeValue(operation);
             for (Class<? extends org.jboss.as.clustering.controller.Attribute> attributeClass : Arrays.asList(StringTableResourceDefinition.Attribute.class, TableResourceDefinition.Attribute.class)) {
                 for (org.jboss.as.clustering.controller.Attribute attribute : attributeClass.getEnumConstants()) {
-                    ModelNode writeAttributeOperation = Operations.createWriteAttributeOperation(address, attribute, table.get(attribute.getDefinition().getName()));
-                    context.addStep(writeAttributeOperation, context.getResourceRegistration().getAttributeAccess(PathAddress.pathAddress(StringTableResourceDefinition.PATH), attribute.getDefinition().getName()).getWriteHandler(), context.getCurrentStage());
+                    ModelNode writeAttributeOperation = Operations.createWriteAttributeOperation(address, attribute, table.get(attribute.getName()));
+                    context.addStep(writeAttributeOperation, context.getResourceRegistration().getAttributeAccess(PathAddress.pathAddress(StringTableResourceDefinition.PATH), attribute.getName()).getWriteHandler(), context.getCurrentStage());
                 }
             }
         }
@@ -161,29 +159,16 @@ public class StringKeyedJDBCStoreResourceDefinition extends JDBCStoreResourceDef
                 .addAttributes(JDBCStoreResourceDefinition.Attribute.class)
                 .addAttributes(StoreResourceDefinition.Attribute.class)
                 .addExtraParameters(DeprecatedAttribute.class)
-                .addExtraParameters(JDBCStoreResourceDefinition.DeprecatedAttribute.class)
                 .addCapabilities(Capability.class)
                 .addRequiredChildren(StringTableResourceDefinition.PATH)
                 .addRequiredSingletonChildren(StoreWriteThroughResourceDefinition.PATH)
+                // Translate deprecated DATASOURCE attribute to DATA_SOURCE attribute
+                .addAttributeTranslation(JDBCStoreResourceDefinition.DeprecatedAttribute.DATASOURCE, JDBCStoreResourceDefinition.Attribute.DATA_SOURCE, JDBCStoreResourceDefinition.POOL_NAME_TO_JNDI_NAME_TRANSLATOR, JDBCStoreResourceDefinition.JNDI_NAME_TO_POOL_NAME_TRANSLATOR)
+                // Translate deprecated TABLE attribute into separate add table operation
+                .addOperationTranslator(new TableAttributeTranslator(DeprecatedAttribute.TABLE, StringTableResourceDefinition.PATH))
                 ;
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new StringKeyedJDBCStoreBuilderFactory());
-        new AddStepHandler(descriptor, handler) {
-            @Override
-            protected void populateModel(OperationContext context, ModelNode operation, Resource resource) throws OperationFailedException {
-                translateAddOperation(context, operation);
-                if (operation.hasDefined(DeprecatedAttribute.TABLE.getDefinition().getName())) {
-                    // Translate deprecated TABLE attribute into separate add table operation
-                    ModelNode addTableOperation = Util.createAddOperation(context.getCurrentAddress().append(StringTableResourceDefinition.PATH));
-                    ModelNode parameters = operation.get(DeprecatedAttribute.TABLE.getDefinition().getName());
-                    for (Property parameter : parameters.asPropertyList()) {
-                        addTableOperation.get(parameter.getName()).set(parameter.getValue());
-                    }
-                    context.addStep(addTableOperation, registration.getOperationHandler(PathAddress.pathAddress(StringTableResourceDefinition.PATH), ModelDescriptionConstants.ADD), context.getCurrentStage());
-                }
-                super.populateModel(context, operation, resource);
-            }
-        }.register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(address -> new StringKeyedJDBCStoreBuilder(address.getParent()));
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         registration.registerReadWriteAttribute(DeprecatedAttribute.TABLE.getDefinition(), LEGACY_READ_TABLE_HANDLER, LEGACY_WRITE_TABLE_HANDLER);
 

@@ -25,9 +25,9 @@ package org.wildfly.extension.undertow.deployment;
 import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.SessionManagerFactory;
 import io.undertow.servlet.core.InMemorySessionManagerFactory;
-
 import org.apache.jasper.Constants;
 import org.jboss.as.controller.PathElement;
+import org.jboss.as.controller.capability.CapabilityServiceSupport;
 import org.jboss.as.ee.component.ComponentRegistry;
 import org.jboss.as.ee.component.EEModuleDescription;
 import org.jboss.as.security.deployment.AbstractSecurityDeployer;
@@ -73,12 +73,13 @@ import org.wildfly.extension.io.IOServices;
 import org.wildfly.extension.requestcontroller.ControlPoint;
 import org.wildfly.extension.requestcontroller.ControlPointService;
 import org.wildfly.extension.requestcontroller.RequestControllerActivationMarker;
+import org.wildfly.extension.undertow.ApplicationSecurityDomainDefinition;
 import org.wildfly.extension.undertow.DeploymentDefinition;
 import org.wildfly.extension.undertow.Host;
 import org.wildfly.extension.undertow.ServletContainerService;
 import org.wildfly.extension.undertow.UndertowExtension;
-import org.wildfly.extension.undertow.logging.UndertowLogger;
 import org.wildfly.extension.undertow.UndertowService;
+import org.wildfly.extension.undertow.logging.UndertowLogger;
 import org.wildfly.extension.undertow.security.jacc.WarJACCDeployer;
 import org.wildfly.extension.undertow.session.DistributableSessionIdentifierCodecBuilder;
 import org.wildfly.extension.undertow.session.DistributableSessionIdentifierCodecBuilderValue;
@@ -95,8 +96,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
 
@@ -104,15 +108,24 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
     private final String defaultHost;
     private final String defaultContainer;
     private final String defaultSecurityDomain;
+    private final Predicate<String> knownSecurityDomain;
+    /**
+        default module mappings, where we have key as name of default deployment,
+        for value we have Map.Entry which has key as server-name where deployment is bound to,
+        value is host name where deployment is bound to.
+     */
+    private final DefaultDeploymentMappingProvider defaultModuleMappingProvider;
 
-    public UndertowDeploymentProcessor(String defaultHost, final String defaultContainer, String defaultServer, String defaultSecurityDomain) {
+    public UndertowDeploymentProcessor(String defaultHost, final String defaultContainer, String defaultServer, String defaultSecurityDomain, Predicate<String> knownSecurityDomain) {
         this.defaultHost = defaultHost;
         this.defaultSecurityDomain = defaultSecurityDomain;
+        this.defaultModuleMappingProvider = DefaultDeploymentMappingProvider.instance();
         if (defaultHost == null) {
             throw UndertowLogger.ROOT_LOGGER.nullDefaultHost();
         }
         this.defaultContainer = defaultContainer;
         this.defaultServer = defaultServer;
+        this.knownSecurityDomain = knownSecurityDomain;
     }
 
     @Override
@@ -129,12 +142,31 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
         if (warMetaData == null) {
             return;
         }
-        String hostName = hostNameOfDeployment(warMetaData, defaultHost);
-        processDeployment(warMetaData, deploymentUnit, phaseContext.getServiceTarget(), hostName);
+        String deploymentName;
+        if (deploymentUnit.getParent() == null) {
+            deploymentName = deploymentUnit.getName();
+        } else {
+            deploymentName = deploymentUnit.getParent().getName() + "." + deploymentUnit.getName();
+        }
+
+        final Map.Entry<String,String> severHost = defaultModuleMappingProvider.getMapping(deploymentName);
+        String defaultHostForDeployment;
+        String defaultServerForDeployment;
+        if (severHost != null) {
+            defaultServerForDeployment = severHost.getKey();
+            defaultHostForDeployment = severHost.getValue();
+        } else {
+            defaultServerForDeployment = this.defaultServer;
+            defaultHostForDeployment = this.defaultHost;
+        }
+
+        String serverInstanceName = warMetaData.getMergedJBossWebMetaData().getServerInstanceName() == null ? defaultServerForDeployment : warMetaData.getMergedJBossWebMetaData().getServerInstanceName();
+        String hostName = hostNameOfDeployment(warMetaData, defaultHostForDeployment);
+        processDeployment(warMetaData, deploymentUnit, phaseContext.getServiceTarget(), deploymentName, hostName, serverInstanceName);
     }
 
 
-    static String hostNameOfDeployment(final WarMetaData metaData, final String defaultHost) {
+    private String hostNameOfDeployment(final WarMetaData metaData, String defaultHost) {
         Collection<String> hostNames = null;
         if (metaData.getMergedJBossWebMetaData() != null) {
             hostNames = metaData.getMergedJBossWebMetaData().getVirtualHosts();
@@ -151,11 +183,11 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
 
     @Override
     public void undeploy(final DeploymentUnit context) {
-        //AbstractSecurityDeployer<?> deployer = new WarJACCDeployer();
-        //deployer.undeploy(context);
+
     }
 
-    private void processDeployment(final WarMetaData warMetaData, final DeploymentUnit deploymentUnit, final ServiceTarget serviceTarget, String hostName)
+    private void processDeployment(final WarMetaData warMetaData, final DeploymentUnit deploymentUnit, final ServiceTarget serviceTarget,
+                                   final String deploymentName, final String hostName, final String serverInstanceName)
             throws DeploymentUnitProcessingException {
         ResourceRoot deploymentResourceRoot = deploymentUnit.getAttachment(Attachments.DEPLOYMENT_ROOT);
         final VirtualFile deploymentRoot = deploymentResourceRoot.getRoot();
@@ -204,13 +236,6 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
             jaccContextId = deploymentUnit.getParent().getName() + "!" + jaccContextId;
         }
 
-        String deploymentName;
-        if (deploymentUnit.getParent() == null) {
-            deploymentName = deploymentUnit.getName();
-        } else {
-            deploymentName = deploymentUnit.getParent().getName() + "." + deploymentUnit.getName();
-        }
-
         final String pathName = pathNameOfDeployment(deploymentUnit, metaData);
 
         boolean securityEnabled = deploymentUnit.hasAttachment(SecurityAttachments.SECURITY_ENABLED);
@@ -230,9 +255,6 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
         } else {
             securityDomain = null;
         }
-
-        String serverInstanceName = metaData.getServerInstanceName() == null ? defaultServer : metaData.getServerInstanceName();
-        final ServiceName deploymentServiceName = UndertowService.deploymentServiceName(serverInstanceName, hostName, pathName);
 
         final Set<ServiceName> additionalDependencies = new HashSet<>();
         for (final SetupAction setupAction : setupActions) {
@@ -256,10 +278,10 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
         additionalDependencies.addAll(warMetaData.getAdditionalDependencies());
 
         final ServiceName hostServiceName = UndertowService.virtualHostName(serverInstanceName, hostName);
+        final ServiceName deploymentServiceName = UndertowService.deploymentServiceName(serverInstanceName, hostName, pathName);
         TldsMetaData tldsMetaData = deploymentUnit.getAttachment(TldsMetaData.ATTACHMENT_KEY);
         UndertowDeploymentInfoService undertowDeploymentInfoService = UndertowDeploymentInfoService.builder()
                 .setAttributes(deploymentUnit.getAttachmentList(ServletContextAttribute.ATTACHMENT_KEY))
-                .setTopLevelDeploymentName(deploymentUnit.getParent() == null ? deploymentUnit.getName() : deploymentUnit.getParent().getName())
                 .setContextPath(pathName)
                 .setDeploymentName(deploymentName) //todo: is this deployment name concept really applicable?
                 .setDeploymentRoot(deploymentRoot)
@@ -284,18 +306,26 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
                 .setWebSocketDeploymentInfo(deploymentUnit.getAttachment(UndertowAttachments.WEB_SOCKET_DEPLOYMENT_INFO))
                 .setTempDir(warMetaData.getTempDir())
                 .setExternalResources(deploymentUnit.getAttachmentList(UndertowAttachments.EXTERNAL_RESOURCES))
+                .setAllowSuspendedRequests(deploymentUnit.getAttachmentList(UndertowAttachments.ALLOW_REQUEST_WHEN_SUSPENDED))
                 .createUndertowDeploymentInfoService();
 
         final ServiceName deploymentInfoServiceName = deploymentServiceName.append(UndertowDeploymentInfoService.SERVICE_NAME);
         ServiceBuilder<DeploymentInfo> infoBuilder = serviceTarget.addService(deploymentInfoServiceName, undertowDeploymentInfoService)
                 .addDependency(UndertowService.SERVLET_CONTAINER.append(servletContainerName), ServletContainerService.class, undertowDeploymentInfoService.getContainer())
                 .addDependency(UndertowService.UNDERTOW, UndertowService.class, undertowDeploymentInfoService.getUndertowService())
-                .addDependencies(deploymentUnit.getAttachmentList(Attachments.WEB_DEPENDENCIES))
                 .addDependency(hostServiceName, Host.class, undertowDeploymentInfoService.getHost())
-                .addDependency(SuspendController.SERVICE_NAME, SuspendController.class, undertowDeploymentInfoService.getSuspendControllerInjectedValue())
-                .addDependencies(additionalDependencies);
+                .addDependency(SuspendController.SERVICE_NAME, SuspendController.class, undertowDeploymentInfoService.getSuspendControllerInjectedValue());
         if(securityDomain != null) {
-            infoBuilder.addDependency(SecurityDomainService.SERVICE_NAME.append(securityDomain), SecurityDomainContext.class, undertowDeploymentInfoService.getSecurityDomainContextValue());
+            if (knownSecurityDomain.test(securityDomain)) {
+                infoBuilder.addDependency(
+                        deploymentUnit.getAttachment(Attachments.CAPABILITY_SERVICE_SUPPORT)
+                                .getCapabilityServiceName(
+                                        ApplicationSecurityDomainDefinition.APPLICATION_SECURITY_DOMAIN_CAPABILITY,
+                                        securityDomain),
+                        Function.class, undertowDeploymentInfoService.getSecurityFunctionInjector());
+            } else {
+                infoBuilder.addDependency(SecurityDomainService.SERVICE_NAME.append(securityDomain), SecurityDomainContext.class, undertowDeploymentInfoService.getSecurityDomainContextValue());
+            }
         }
 
         if(RequestControllerActivationMarker.isRequestControllerEnabled(deploymentUnit)){
@@ -335,7 +365,8 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
             infoBuilder.addDependency(deploymentUnit.getParent().getServiceName().append(SharedSessionManagerConfig.SHARED_SESSION_MANAGER_SERVICE_NAME), SessionManagerFactory.class, undertowDeploymentInfoService.getSessionManagerFactoryInjector());
             infoBuilder.addDependency(deploymentUnit.getParent().getServiceName().append(SharedSessionManagerConfig.SHARED_SESSION_IDENTIFIER_CODEC_SERVICE_NAME), SessionIdentifierCodec.class, undertowDeploymentInfoService.getSessionIdentifierCodecInjector());
         } else {
-            ServiceName sessionManagerFactoryServiceName = installSessionManagerFactory(serviceTarget, deploymentServiceName, deploymentName, module, metaData, deploymentUnit.getAttachment(UndertowAttachments.SERVLET_CONTAINER_SERVICE));
+            CapabilityServiceSupport support = deploymentUnit.getAttachment(Attachments.CAPABILITY_SERVICE_SUPPORT);
+            ServiceName sessionManagerFactoryServiceName = installSessionManagerFactory(support, serviceTarget, deploymentServiceName, deploymentName, module, metaData, deploymentUnit.getAttachment(UndertowAttachments.SERVLET_CONTAINER_SERVICE));
             infoBuilder.addDependency(sessionManagerFactoryServiceName, SessionManagerFactory.class, undertowDeploymentInfoService.getSessionManagerFactoryInjector());
 
             ServiceName sessionIdentifierCodecServiceName = installSessionIdentifierCodec(serviceTarget, deploymentServiceName, deploymentName, metaData);
@@ -398,7 +429,7 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
         processManagement(deploymentUnit, metaData);
     }
 
-    private static ServiceName installSessionManagerFactory(ServiceTarget target, ServiceName deploymentServiceName, String deploymentName, Module module, JBossWebMetaData metaData, ServletContainerService servletContainerService) {
+    private static ServiceName installSessionManagerFactory(CapabilityServiceSupport support, ServiceTarget target, ServiceName deploymentServiceName, String deploymentName, Module module, JBossWebMetaData metaData, ServletContainerService servletContainerService) {
 
         Integer maxActiveSessions = metaData.getMaxActiveSessions();
         if(maxActiveSessions == null && servletContainerService != null) {
@@ -408,7 +439,7 @@ public class UndertowDeploymentProcessor implements DeploymentUnitProcessor {
         if (metaData.getDistributable() != null) {
             DistributableSessionManagerFactoryBuilder sessionManagerFactoryBuilder = new DistributableSessionManagerFactoryBuilderValue().getValue();
             if (sessionManagerFactoryBuilder != null) {
-                sessionManagerFactoryBuilder.build(target, name, new SimpleDistributableSessionManagerConfiguration(maxActiveSessions, metaData.getReplicationConfig(), deploymentName, module))
+                sessionManagerFactoryBuilder.build(support, target, name, new SimpleDistributableSessionManagerConfiguration(maxActiveSessions, metaData.getReplicationConfig(), deploymentName, module))
                         .setInitialMode(Mode.ON_DEMAND)
                         .install()
                 ;

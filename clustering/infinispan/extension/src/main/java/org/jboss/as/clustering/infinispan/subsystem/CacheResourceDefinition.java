@@ -22,11 +22,16 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 import org.infinispan.configuration.cache.Index;
 import org.jboss.as.clustering.controller.AttributeMarshallers;
 import org.jboss.as.clustering.controller.AttributeParsers;
+import org.jboss.as.clustering.controller.BinaryRequirementCapability;
+import org.jboss.as.clustering.controller.CapabilityProvider;
 import org.jboss.as.clustering.controller.ChildResourceDefinition;
 import org.jboss.as.clustering.controller.MetricHandler;
 import org.jboss.as.clustering.controller.validation.EnumValidatorBuilder;
@@ -51,6 +56,9 @@ import org.jboss.as.controller.transform.description.RejectAttributeChecker;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
+import org.wildfly.clustering.infinispan.spi.InfinispanCacheRequirement;
+import org.wildfly.clustering.service.BinaryRequirement;
+import org.wildfly.clustering.spi.ClusteringCacheRequirement;
 
 /**
  * Base class for cache resources which require common cache attributes only.
@@ -58,6 +66,27 @@ import org.jboss.dmr.ModelType;
  * @author Richard Achmatowicz (c) 2011 Red Hat Inc.
  */
 public class CacheResourceDefinition extends ChildResourceDefinition {
+
+    enum Capability implements CapabilityProvider {
+        CACHE(InfinispanCacheRequirement.CACHE),
+        CONFIGURATION(InfinispanCacheRequirement.CONFIGURATION),
+        ;
+        private final org.jboss.as.clustering.controller.Capability capability;
+
+        Capability(BinaryRequirement requirement) {
+            this.capability = new BinaryRequirementCapability(requirement);
+        }
+
+        @Override
+        public org.jboss.as.clustering.controller.Capability getCapability() {
+            return this.capability;
+        }
+    }
+
+    static final Map<ClusteringCacheRequirement, org.jboss.as.clustering.controller.Capability> CLUSTERING_CAPABILITIES = new EnumMap<>(ClusteringCacheRequirement.class);
+    static {
+        EnumSet.allOf(ClusteringCacheRequirement.class).forEach(requirement -> CLUSTERING_CAPABILITIES.put(requirement, new BinaryRequirementCapability(requirement)));
+    }
 
     enum Attribute implements org.jboss.as.clustering.controller.Attribute {
         MODULE("module", ModelType.STRING, null, new ModuleIdentifierValidatorBuilder()),
@@ -123,7 +152,7 @@ public class CacheResourceDefinition extends ChildResourceDefinition {
     static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue) {
         return new SimpleAttributeDefinitionBuilder(name, type)
                 .setAllowExpression(true)
-                .setAllowNull(true)
+                .setRequired(false)
                 .setDefaultValue(defaultValue)
                 .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                 ;
@@ -145,10 +174,10 @@ public class CacheResourceDefinition extends ChildResourceDefinition {
                     PathAddress transactionAddress = address.append(TransactionResourceDefinition.PATH);
                     try {
                         ModelNode transaction = context.readResourceFromRoot(transactionAddress).getModel();
-                        if (transaction.hasDefined(TransactionResourceDefinition.Attribute.MODE.getDefinition().getName())) {
-                            ModelNode mode = transaction.get(TransactionResourceDefinition.Attribute.MODE.getDefinition().getName());
+                        if (transaction.hasDefined(TransactionResourceDefinition.Attribute.MODE.getName())) {
+                            ModelNode mode = transaction.get(TransactionResourceDefinition.Attribute.MODE.getName());
                             if ((mode.getType() == ModelType.STRING) && (TransactionMode.valueOf(mode.asString()) == TransactionMode.BATCH)) {
-                                resource.getModel().get(DeprecatedAttribute.BATCHING.getDefinition().getName()).set(true);
+                                resource.getModel().get(DeprecatedAttribute.BATCHING.getName()).set(true);
                             }
                         }
                     } catch (NoSuchElementException e) {

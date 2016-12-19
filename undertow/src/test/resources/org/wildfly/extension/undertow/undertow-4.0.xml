@@ -29,10 +29,12 @@
     <server name="some-server" default-host="other-host" servlet-container="myContainer">
         <ajp-listener name="ajp-connector" disallowed-methods="FOO TRACE" socket-binding="ajp" redirect-socket="ajps" max-parameters="5000" tcp-keep-alive="true" tcp-backlog="500" receive-buffer="5000" send-buffer="50000" resolve-peer-address="true" no-request-timeout="10000" request-parse-timeout="2000" secure="true"/>
         <http-listener name="default" socket-binding="http" certificate-forwarding="true" always-set-keep-alive="${prop.smth:false}" redirect-socket="ajp" proxy-address-forwarding="${prop.smth:false}" resolve-peer-address="true"/>
-        <http-listener name="second"  socket-binding="http-2" max-cookies="100" max-parameters="30" url-charset="windows-1250" max-post-size="100000" max-headers="30" redirect-socket="https-non-default"/>
+        <http-listener name="second"  socket-binding="http-2" max-cookies="100" max-parameters="30" url-charset="windows-1250" max-post-size="100000" max-headers="30" redirect-socket="https-non-default" require-host-http11="true"/>
         <http-listener name="no-redirect" worker="non-default" socket-binding="http-2" max-cookies="100" max-parameters="30" url-charset="windows-1250" max-post-size="100000" max-headers="30"/>
-        <https-listener name="https" disallowed-methods="" socket-binding="https-non-default" security-realm="UndertowRealm" verify-client="REQUESTED" record-request-start-time="true" max-buffered-request-size="50000" resolve-peer-address="true" max-connections="100"/>
-        <https-listener name="https-2" socket-binding="https-2" security-realm="UndertowRealm" enabled-cipher-suites="ALL:!MD5:!DHA" enabled-protocols="SSLv3, TLSv1.2" read-timeout="-1" write-timeout="-1"/>
+        <https-listener name="https" disallowed-methods="" socket-binding="https-non-default" security-realm="UndertowRealm" verify-client="REQUESTED" record-request-start-time="true" max-buffered-request-size="50000" resolve-peer-address="true" max-connections="100" require-host-http11="true"/>
+        <https-listener name="https-2" socket-binding="https-2" security-realm="UndertowRealm" enabled-cipher-suites="ALL:!MD5:!DHA" enabled-protocols="SSLv3, TLSv1.2" read-timeout="-1" write-timeout="-1" certificate-forwarding="true" proxy-address-forwarding="true"/>
+        <https-listener name="https-3" disallowed-methods="" socket-binding="https-non-default" ssl-context="TestContext" record-request-start-time="true" max-buffered-request-size="50000" resolve-peer-address="true" max-connections="100"/>
+        <https-listener name="https-4" disallowed-methods="" socket-binding="https-non-default" record-request-start-time="true" max-buffered-request-size="50000" resolve-peer-address="true" max-connections="100"/>
 
         <host name="default-host" alias="localhost, some.host" default-web-module="something.war" default-response-code="503">
             <location name="/" handler="welcome-content">
@@ -45,7 +47,7 @@
             <access-log pattern="REQ %{i,test-header}" directory="${jboss.server.server.dir}" prefix="access" rotate="false" predicate="not path-suffix[*.css]"/>
             <single-sign-on domain="${prop.domain:myDomain}" http-only="true" secure="true" path="/path" cookie-name="SSOID"/>
         </host>
-        <host name="other-host" alias="www.mysite.com, ${prop.value:default-alias}" default-web-module="something.war" disable-console-redirect="true">
+        <host name="other-host" alias="www.mysite.com, ${prop.value:default-alias}" default-web-module="something-else.war" disable-console-redirect="true" default-response-code="501">
             <location name="/" handler="welcome-content">
                 <filter-ref name="limit-connections"/>
                 <filter-ref name="headers"/>
@@ -87,7 +89,7 @@
                         http-only="true"
                         max-age="1000"/>
         <!--<persistent-sessions relative-to="${server.data.dir}" path="web-sessions"/>-->
-        <websockets dispatch-to-worker="false" />
+        <websockets dispatch-to-worker="false" per-message-deflate="false" deflater-level="0" />
         <mime-mappings>
             <mime-mapping name="txt" value="text/plain" />
         </mime-mappings>
@@ -100,13 +102,12 @@
     <handlers>
         <file name="welcome-content" path="${jboss.home.dir}/welcome-content" directory-listing="true" case-sensitive="false" follow-symlink="true" safe-symlink-paths="/path/to/folder /second/path"/>
         <reverse-proxy connection-idle-timeout="60"
-                       connections-per-thread="30" name="reverse-proxy">
-            <host name="localhost" scheme="ajp" outbound-socket-binding="ajp-remote" instance-id="myRoute" path="/test" security-realm="foo"/>
+                       connections-per-thread="30" name="reverse-proxy" max-retries="10">
+            <host name="localhost" scheme="ajp" outbound-socket-binding="ajp-remote" instance-id="myRoute" path="/test" ssl-context="foo"/>
             <!-- ajp://localhost:8080 -->
         </reverse-proxy>
     </handlers>
     <filters>
-        <!--<basic-auth name="security-other" security-domain="other"/>-->
         <request-limit name="limit-connections" max-concurrent-requests="15000" queue-size="100"/>
         <response-header name="headers" header-name="MY_HEADER" header-value="someValue"/>
         <gzip name="static-gzip"/>
@@ -117,11 +118,15 @@
                      connection-idle-timeout="10" health-check-interval="600"
                      management-access-predicate="method[GET]"
                      management-socket-binding="test3" max-request-time="1000"
-                     security-realm="foo"
-                     name="mod-cluster" security-key="password"/>
+                     ssl-context="foo"
+                     name="mod-cluster" security-key="password"
+                     max-retries="10"/>
         <filter name="custom-filter" class-name="io.undertow.server.handlers.HttpTraceHandler" module="io.undertow.core" />
         <expression-filter name="requestDumper" expression="dump-request" />
         <rewrite name="redirects" target="'/foo/'" redirect="true" />
     </filters>
 
+    <application-security-domains>
+        <application-security-domain name="other" http-authentication-factory="elytron-factory" override-deployment-config="true" />
+    </application-security-domains>
 </subsystem>

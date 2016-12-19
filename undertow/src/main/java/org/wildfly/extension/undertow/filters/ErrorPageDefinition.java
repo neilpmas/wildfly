@@ -45,10 +45,12 @@ public class ErrorPageDefinition extends Filter{
     public static final AttributeDefinition CODE = new SimpleAttributeDefinitionBuilder("code", ModelType.INT)
             .setAllowExpression(true)
             .setAllowNull(false)
+            .setRestartAllServices()
             .build();
     public static final AttributeDefinition PATH = new SimpleAttributeDefinitionBuilder("path", ModelType.STRING)
             .setAllowExpression(true)
             .setAllowNull(true)
+            .setRestartAllServices()
             .build();
     public static final Collection<AttributeDefinition> ATTRIBUTES = Collections.unmodifiableCollection(Arrays.asList(CODE, PATH));
     public static final ErrorPageDefinition INSTANCE = new ErrorPageDefinition();
@@ -71,7 +73,7 @@ public class ErrorPageDefinition extends Filter{
     public HttpHandler createHttpHandler(Predicate predicate, ModelNode model, HttpHandler next) {
         int code = model.get(CODE.getName()).asInt();
         String path = model.get(PATH.getName()).asString();
-        FileErrorPageHandler handler = new FileErrorPageHandler(Paths.get(path).toFile(), code);
+        FileErrorPageHandler handler = new FileErrorPageHandler(Paths.get(path), code);
         handler.setNext(next);
         if(predicate == null) {
             return handler;

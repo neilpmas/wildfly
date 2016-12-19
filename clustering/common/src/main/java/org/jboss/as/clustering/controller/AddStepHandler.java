@@ -23,6 +23,7 @@
 package org.jboss.as.clustering.controller;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiPredicate;
 import java.util.stream.Stream;
@@ -52,21 +53,20 @@ public class AddStepHandler extends AbstractAddStepHandler implements Registrati
 
     private final AddStepHandlerDescriptor descriptor;
     private final ResourceServiceHandler handler;
-    private final OperationStepHandler writeAttributeHandler;
 
     public AddStepHandler(AddStepHandlerDescriptor descriptor) {
         this(descriptor, null);
     }
 
     public AddStepHandler(AddStepHandlerDescriptor descriptor, ResourceServiceHandler handler) {
-        this(descriptor, handler, new ReloadRequiredWriteAttributeHandler(descriptor));
-    }
-
-    AddStepHandler(AddStepHandlerDescriptor descriptor, ResourceServiceHandler handler, OperationStepHandler writeAttributeHandler) {
         super(descriptor.getAttributes());
         this.descriptor = descriptor;
         this.handler = handler;
-        this.writeAttributeHandler = writeAttributeHandler;
+    }
+
+    @Override
+    protected boolean requiresRuntime(OperationContext context) {
+        return super.requiresRuntime(context) && (this.handler != null);
     }
 
     @Override
@@ -107,13 +107,36 @@ public class AddStepHandler extends AbstractAddStepHandler implements Registrati
         }
 
         super.execute(context, operation);
+
+        if (this.requiresRuntime(context)) {
+            this.descriptor.getRuntimeResourceRegistrations().forEach(registration -> context.addStep(registration, OperationContext.Stage.MODEL));
+        }
     }
 
     @Override
     protected void populateModel(OperationContext context, ModelNode operation, Resource resource) throws OperationFailedException {
+        // Perform operation translation
+        for (OperationStepHandler translator : this.descriptor.getOperationTranslators()) {
+            translator.execute(context, operation);
+        }
+        // Validate extra add operation parameters
         for (AttributeDefinition definition : this.descriptor.getExtraParameters()) {
             definition.validateOperation(operation);
         }
+        // Validate and apply attribute translations
+        for (Map.Entry<AttributeDefinition, AttributeTranslation> entry : this.descriptor.getAttributeTranslations().entrySet()) {
+            AttributeDefinition alias = entry.getKey();
+            AttributeTranslation translation = entry.getValue();
+            Attribute target = translation.getTargetAttribute();
+            String targetName = target.getName();
+            if (operation.hasDefined(alias.getName()) && !operation.hasDefined(targetName)) {
+                ModelNode value = alias.validateOperation(operation);
+                ModelNode translatedValue = translation.getWriteTranslator().translate(context, value);
+                // Target attribute will be validated by super implementation
+                operation.get(targetName).set(translatedValue);
+            }
+        }
+
         super.populateModel(context, operation, resource);
 
         // Auto-create required child resources as necessary
@@ -127,31 +150,28 @@ public class AddStepHandler extends AbstractAddStepHandler implements Registrati
 
     @Override
     protected void performRuntime(OperationContext context, ModelNode operation, ModelNode model) throws OperationFailedException {
-        if (this.handler != null) {
-            this.handler.installServices(context, model);
-        }
+        this.handler.installServices(context, model);
     }
 
     @Override
     protected void rollbackRuntime(OperationContext context, ModelNode operation, Resource resource) {
-        if (this.handler != null) {
-            try {
-                this.handler.removeServices(context, resource.getModel());
-            } catch (OperationFailedException e) {
-                throw new IllegalStateException(e);
-            }
+        try {
+            this.handler.removeServices(context, resource.getModel());
+        } catch (OperationFailedException e) {
+            throw new IllegalStateException(e);
         }
     }
 
     @Override
     protected void recordCapabilitiesAndRequirements(OperationContext context, ModelNode operation, Resource resource) throws OperationFailedException {
         PathAddress address = context.getCurrentAddress();
-        // The super implementation assumes that the capability name is a simple extension of the base name - we do not.
-        this.descriptor.getCapabilities().forEach(capability -> context.registerCapability(capability.resolve(address)));
-
         ModelNode model = resource.getModel();
+        // The super implementation assumes that the capability name is a simple extension of the base name - we do not.
+        // Only register capabilities when allowed by the associated predicate
+        this.descriptor.getCapabilities().entrySet().stream().filter(entry -> entry.getValue().test(model)).map(Map.Entry::getKey).forEach(capability -> context.registerCapability(capability.resolve(address)));
+
         this.attributes.stream()
-                .filter(attribute -> model.hasDefined(attribute.getName()) || attribute.hasCapabilityRequirements())
+                .filter(attribute -> attribute.hasCapabilityRequirements())
                 .forEach(attribute -> attribute.addCapabilityRequirements(context, model.get(attribute.getName())));
     }
 
@@ -161,11 +181,10 @@ public class AddStepHandler extends AbstractAddStepHandler implements Registrati
         if (registration.isOrderedChildResource()) {
             builder.addParameter(SimpleAttributeDefinitionBuilder.create(ModelDescriptionConstants.ADD_INDEX, ModelType.INT, true).build());
         }
-        Stream.concat(this.descriptor.getAttributes().stream(), this.descriptor.getExtraParameters().stream()).forEach(attribute -> builder.addParameter(attribute));
+        Stream<AttributeDefinition> parameters = this.descriptor.getAttributes().stream();
+        parameters = Stream.concat(parameters, this.descriptor.getExtraParameters().stream());
+        parameters = Stream.concat(parameters, this.descriptor.getAttributeTranslations().keySet().stream());
+        parameters.forEach(attribute -> builder.addParameter(attribute));
         registration.registerOperationHandler(builder.build(), this);
-
-        this.descriptor.getAttributes().forEach(attribute -> registration.registerReadWriteAttribute(attribute, null, this.writeAttributeHandler));
-
-        new CapabilityRegistration(this.descriptor.getCapabilities()).register(registration);
     }
 }

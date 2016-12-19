@@ -25,8 +25,8 @@ package org.wildfly.clustering.web.infinispan.session;
 import org.infinispan.Cache;
 import org.infinispan.context.Flag;
 import org.wildfly.clustering.ee.infinispan.CacheProperties;
+import org.wildfly.clustering.ee.Mutator;
 import org.wildfly.clustering.ee.infinispan.CacheEntryMutator;
-import org.wildfly.clustering.ee.infinispan.Mutator;
 import org.wildfly.clustering.infinispan.spi.distribution.Key;
 import org.wildfly.clustering.web.session.ImmutableSessionMetaData;
 
@@ -50,8 +50,12 @@ public class InfinispanSessionMetaDataFactory<L> implements SessionMetaDataFacto
 
     @Override
     public InfinispanSessionMetaData<L> createValue(String id, Void context) {
-        SessionCreationMetaDataEntry<L> creationMetaDataEntry = this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).computeIfAbsent(new SessionCreationMetaDataKey(id), key -> new SessionCreationMetaDataEntry<>(new SimpleSessionCreationMetaData()));
-        SessionAccessMetaData accessMetaData = this.accessMetaDataCache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).computeIfAbsent(new SessionAccessMetaDataKey(id), key -> new SimpleSessionAccessMetaData());
+        SessionCreationMetaDataEntry<L> creationMetaDataEntry = new SessionCreationMetaDataEntry<>(new SimpleSessionCreationMetaData());
+        if (this.creationMetaDataCache.getAdvancedCache().withFlags(Flag.FORCE_SYNCHRONOUS).putIfAbsent(new SessionCreationMetaDataKey(id), creationMetaDataEntry) != null) {
+            return null;
+        }
+        SessionAccessMetaData accessMetaData = new SimpleSessionAccessMetaData();
+        this.accessMetaDataCache.getAdvancedCache().withFlags(Flag.IGNORE_RETURN_VALUES).put(new SessionAccessMetaDataKey(id), accessMetaData);
         return new InfinispanSessionMetaData<>(creationMetaDataEntry.getMetaData(), accessMetaData, creationMetaDataEntry.getLocalContext());
     }
 
@@ -118,8 +122,13 @@ public class InfinispanSessionMetaDataFactory<L> implements SessionMetaDataFacto
     }
 
     @Override
-    public void evict(String id) {
-        this.creationMetaDataCache.evict(new SessionCreationMetaDataKey(id));
-        this.accessMetaDataCache.evict(new SessionAccessMetaDataKey(id));
+    public boolean evict(String id) {
+        SessionCreationMetaDataKey key = new SessionCreationMetaDataKey(id);
+        if (this.findCreationMetaDataCache.getAdvancedCache().withFlags(EVICTION_FLAGS).get(key) != null) {
+            this.creationMetaDataCache.evict(key);
+            this.accessMetaDataCache.evict(new SessionAccessMetaDataKey(id));
+            return true;
+        }
+        return false;
     }
 }

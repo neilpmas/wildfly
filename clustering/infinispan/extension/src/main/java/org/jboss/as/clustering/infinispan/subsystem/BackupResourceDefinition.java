@@ -29,8 +29,7 @@ import org.jboss.as.clustering.controller.ChildResourceDefinition;
 import org.jboss.as.clustering.controller.OperationHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
 import org.jboss.as.clustering.controller.ResourceServiceBuilderFactory;
-import org.jboss.as.clustering.controller.RestartParentResourceAddStepHandler;
-import org.jboss.as.clustering.controller.RestartParentResourceRemoveStepHandler;
+import org.jboss.as.clustering.controller.RestartParentResourceRegistration;
 import org.jboss.as.clustering.controller.validation.EnumValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.ParameterValidatorBuilder;
 import org.jboss.as.controller.AttributeDefinition;
@@ -99,7 +98,7 @@ public class BackupResourceDefinition extends ChildResourceDefinition {
     static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue) {
         return new SimpleAttributeDefinitionBuilder(name, type)
                 .setAllowExpression(true)
-                .setAllowNull(true)
+                .setRequired(false)
                 .setDefaultValue(defaultValue)
                 .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                 .setMeasurementUnit((type == ModelType.LONG) ? MeasurementUnit.MILLISECONDS : null)
@@ -127,8 +126,7 @@ public class BackupResourceDefinition extends ChildResourceDefinition {
                 .addAttributes(Attribute.class)
                 .addAttributes(TakeOfflineAttribute.class)
                 ;
-        new RestartParentResourceAddStepHandler<>(this.parentBuilderFactory, descriptor).register(registration);
-        new RestartParentResourceRemoveStepHandler<>(this.parentBuilderFactory, descriptor).register(registration);
+        new RestartParentResourceRegistration<>(this.parentBuilderFactory, descriptor).register(registration);
 
         if (this.runtimeRegistration) {
             new OperationHandler<>(new BackupOperationExecutor(), BackupOperation.class).register(registration);

@@ -22,9 +22,8 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.PathElement;
@@ -64,13 +63,14 @@ public class ReplicatedCacheResourceDefinition extends SharedStateCacheResourceD
                 .addAttributes(ClusteredCacheResourceDefinition.DeprecatedAttribute.class)
                 .addAttributes(CacheResourceDefinition.Attribute.class)
                 .addAttributes(CacheResourceDefinition.DeprecatedAttribute.class)
+                .addCapabilities(CacheResourceDefinition.Capability.class)
+                .addCapabilities(CacheResourceDefinition.CLUSTERING_CAPABILITIES.values())
                 .addRequiredChildren(EvictionResourceDefinition.PATH, ExpirationResourceDefinition.PATH, LockingResourceDefinition.PATH, TransactionResourceDefinition.PATH)
                 .addRequiredChildren(PartitionHandlingResourceDefinition.PATH, StateTransferResourceDefinition.PATH, BackupForResourceDefinition.PATH, BackupsResourceDefinition.PATH)
                 .addRequiredSingletonChildren(NoStoreResourceDefinition.PATH)
                 ;
         ResourceServiceHandler handler = new ReplicatedCacheServiceHandler();
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         super.register(registration);
     }

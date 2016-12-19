@@ -25,6 +25,7 @@ package org.wildfly.extension.undertow.deployment;
 import io.undertow.Handlers;
 import io.undertow.jsp.JspFileHandler;
 import io.undertow.jsp.JspServletBuilder;
+import io.undertow.predicate.Predicate;
 import io.undertow.security.api.AuthenticationMechanism;
 import io.undertow.security.api.AuthenticationMode;
 import io.undertow.server.HandlerWrapper;
@@ -55,7 +56,7 @@ import io.undertow.servlet.api.ServletInfo;
 import io.undertow.servlet.api.ServletSecurityInfo;
 import io.undertow.servlet.api.ServletSessionConfig;
 import io.undertow.servlet.api.SessionManagerFactory;
-import io.undertow.servlet.api.ThreadSetupAction;
+import io.undertow.servlet.api.ThreadSetupHandler;
 import io.undertow.servlet.api.WebResourceCollection;
 import io.undertow.servlet.handlers.DefaultServlet;
 import io.undertow.servlet.handlers.ServletPathMatches;
@@ -142,6 +143,7 @@ import org.wildfly.extension.undertow.SessionCookieConfig;
 import org.wildfly.extension.undertow.SingleSignOnService;
 import org.wildfly.extension.undertow.logging.UndertowLogger;
 import org.wildfly.extension.undertow.UndertowService;
+import org.wildfly.extension.undertow.ApplicationSecurityDomainDefinition.Registration;
 import org.wildfly.extension.undertow.security.AuditNotificationReceiver;
 import org.wildfly.extension.undertow.security.JAASIdentityManagerImpl;
 import org.wildfly.extension.undertow.security.JbossAuthorizationManager;
@@ -156,7 +158,6 @@ import org.wildfly.extension.undertow.security.jaspi.JASPICSecureResponseHandler
 import org.wildfly.extension.undertow.security.jaspi.JASPICSecurityContextFactory;
 import org.wildfly.extension.undertow.session.CodecSessionConfigWrapper;
 import org.wildfly.extension.undertow.session.SharedSessionManagerConfig;
-import org.wildfly.security.manager.WildFlySecurityManager;
 import org.xnio.IoUtils;
 
 import javax.servlet.Filter;
@@ -184,6 +185,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import org.jboss.security.AuthenticationManager;
 
@@ -208,6 +210,7 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
     public static final String UNDERTOW = "undertow";
 
     private DeploymentInfo deploymentInfo;
+    private Registration registration;
 
     private final JBossWebMetaData mergedMetaData;
     private final String deploymentName;
@@ -227,7 +230,7 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
     private final List<HandlerWrapper> initialHandlerChainWrappers;
     private final List<HandlerWrapper> innerHandlerChainWrappers;
     private final List<HandlerWrapper> outerHandlerChainWrappers;
-    private final List<ThreadSetupAction> threadSetupActions;
+    private final List<ThreadSetupHandler> threadSetupActions;
     private final List<ServletExtension> servletExtensions;
     private final SharedSessionManagerConfig sharedSessionManagerConfig;
     private final boolean explodedDeployment;
@@ -242,12 +245,13 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
     private final InjectedValue<ControlPoint> controlPointInjectedValue = new InjectedValue<>();
     private final InjectedValue<SuspendController> suspendControllerInjectedValue = new InjectedValue<>();
     private final Map<String, InjectedValue<Executor>> executorsByName = new HashMap<String, InjectedValue<Executor>>();
-    private final String topLevelDeploymentName;
     private final WebSocketDeploymentInfo webSocketDeploymentInfo;
     private final File tempDir;
     private final List<File> externalResources;
+    private final InjectedValue<Function> securityFunction = new InjectedValue<>();
+    private final List<Predicate> allowSuspendedRequests;
 
-    private UndertowDeploymentInfoService(final JBossWebMetaData mergedMetaData, final String deploymentName, final TldsMetaData tldsMetaData, final List<TldMetaData> sharedTlds, final Module module, final ScisMetaData scisMetaData, final VirtualFile deploymentRoot, final String jaccContextId, final String securityDomain, final List<ServletContextAttribute> attributes, final String contextPath, final List<SetupAction> setupActions, final Set<VirtualFile> overlays, final List<ExpressionFactoryWrapper> expressionFactoryWrappers, List<PredicatedHandler> predicatedHandlers, List<HandlerWrapper> initialHandlerChainWrappers, List<HandlerWrapper> innerHandlerChainWrappers, List<HandlerWrapper> outerHandlerChainWrappers, List<ThreadSetupAction> threadSetupActions, boolean explodedDeployment, List<ServletExtension> servletExtensions, SharedSessionManagerConfig sharedSessionManagerConfig, String topLevelDeploymentName, WebSocketDeploymentInfo webSocketDeploymentInfo, File tempDir, List<File> externalResources) {
+    private UndertowDeploymentInfoService(final JBossWebMetaData mergedMetaData, final String deploymentName, final TldsMetaData tldsMetaData, final List<TldMetaData> sharedTlds, final Module module, final ScisMetaData scisMetaData, final VirtualFile deploymentRoot, final String jaccContextId, final String securityDomain, final List<ServletContextAttribute> attributes, final String contextPath, final List<SetupAction> setupActions, final Set<VirtualFile> overlays, final List<ExpressionFactoryWrapper> expressionFactoryWrappers, List<PredicatedHandler> predicatedHandlers, List<HandlerWrapper> initialHandlerChainWrappers, List<HandlerWrapper> innerHandlerChainWrappers, List<HandlerWrapper> outerHandlerChainWrappers, List<ThreadSetupHandler> threadSetupActions, boolean explodedDeployment, List<ServletExtension> servletExtensions, SharedSessionManagerConfig sharedSessionManagerConfig, WebSocketDeploymentInfo webSocketDeploymentInfo, File tempDir, List<File> externalResources, List<Predicate> allowSuspendedRequests) {
         this.mergedMetaData = mergedMetaData;
         this.deploymentName = deploymentName;
         this.tldsMetaData = tldsMetaData;
@@ -270,10 +274,10 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
         this.explodedDeployment = explodedDeployment;
         this.servletExtensions = servletExtensions;
         this.sharedSessionManagerConfig = sharedSessionManagerConfig;
-        this.topLevelDeploymentName = topLevelDeploymentName;
         this.webSocketDeploymentInfo = webSocketDeploymentInfo;
         this.tempDir = tempDir;
         this.externalResources = externalResources;
+        this.allowSuspendedRequests = allowSuspendedRequests;
     }
 
     @Override
@@ -283,13 +287,16 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             Thread.currentThread().setContextClassLoader(module.getClassLoader());
             DeploymentInfo deploymentInfo = createServletConfig();
 
+            deploymentInfo.setConfidentialPortManager(getConfidentialPortManager());
+
             handleDistributable(deploymentInfo);
-            handleIdentityManager(deploymentInfo);
-            handleJASPIMechanism(deploymentInfo);
-            handleJACCAuthorization
-                    (deploymentInfo);
+            if (securityFunction.getOptionalValue() == null) {
+                handleIdentityManager(deploymentInfo);
+                handleJASPIMechanism(deploymentInfo);
+                handleJACCAuthorization(deploymentInfo);
+                handleAuthManagerLogout(deploymentInfo, mergedMetaData);
+            }
             handleAdditionalAuthenticationMechanisms(deploymentInfo);
-            handleAuthManagerLogout(deploymentInfo, mergedMetaData);
 
             if(mergedMetaData.isUseJBossAuthorization()) {
                 deploymentInfo.setAuthorizationManager(new JbossAuthorizationManager(deploymentInfo.getAuthorizationManager()));
@@ -401,7 +408,7 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             }
 
             if (threadSetupActions != null) {
-                for (ThreadSetupAction threadSetupAction : threadSetupActions) {
+                for (ThreadSetupHandler threadSetupAction : threadSetupActions) {
                     deploymentInfo.addThreadSetupAction(threadSetupAction);
                 }
             }
@@ -412,7 +419,7 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
 
             ControlPoint controlPoint = controlPointInjectedValue.getOptionalValue();
             if (controlPoint != null) {
-                deploymentInfo.addInitialHandlerChainWrapper(GlobalRequestControllerHandler.wrapper(controlPoint));
+                deploymentInfo.addOuterHandlerChainWrapper(GlobalRequestControllerHandler.wrapper(controlPoint, allowSuspendedRequests));
             }
 
             container.getValue().getAuthenticationMechanisms().entrySet().forEach(e -> deploymentInfo.addAuthenticationMechanism(e.getKey(), e.getValue()));
@@ -440,7 +447,7 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
     @Override
     public synchronized void stop(final StopContext stopContext) {
         IoUtils.safeClose(this.deploymentInfo.getResourceManager());
-        if (securityDomain != null) {
+        if (securityDomain != null && securityFunction.getOptionalValue() == null) {
             AuthenticationManager authManager = securityDomainContextValue.getValue().getAuthenticationManager();
             if (authManager != null && authManager instanceof JBossCachedAuthenticationManager) {
                 ((JBossCachedAuthenticationManager) authManager).releaseModuleEntries(module.getClassLoader());
@@ -448,6 +455,9 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
         }
         this.deploymentInfo.setConfidentialPortManager(null);
         this.deploymentInfo = null;
+        if (registration != null) {
+            registration.cancel();
+        }
     }
 
     @Override
@@ -513,7 +523,6 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
     }
 
     private void handleIdentityManager(final DeploymentInfo deploymentInfo) {
-        deploymentInfo.setConfidentialPortManager(getConfidentialPortManager());
         if(securityDomain != null) {
             SecurityDomainContext sdc = securityDomainContextValue.getValue();
             deploymentInfo.setIdentityManager(new JAASIdentityManagerImpl(sdc));
@@ -574,10 +583,11 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             }
             d.setDeploymentName(deploymentName);
             d.setHostName(host.getValue().getName());
+
             final ServletContainerService servletContainer = container.getValue();
             try {
                 //TODO: make the caching limits configurable
-                ResourceManager resourceManager = new ServletResourceManager(deploymentRoot, overlays, explodedDeployment, mergedMetaData.isSymbolicLinkingEnabled());
+                ResourceManager resourceManager = new ServletResourceManager(deploymentRoot, overlays, explodedDeployment, mergedMetaData.isSymbolicLinkingEnabled(), servletContainer.isDisableFileWatchService());
 
                 resourceManager = new CachingResourceManager(100, 10 * 1024 * 1024, servletContainer.getBufferCache(), resourceManager, explodedDeployment ? 2000 : -1);
                 if(externalResources != null && !externalResources.isEmpty()) {
@@ -951,17 +961,20 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             }
 
             d.addSecurityRoles(mergedMetaData.getSecurityRoleNames());
-
-
             Map<String, Set<String>> principalVersusRolesMap = mergedMetaData.getPrincipalVersusRolesMap();
-            if(securityDomain != null) {
-                d.addThreadSetupAction(new SecurityContextThreadSetupAction(securityDomain, securityDomainContextValue.getValue(), principalVersusRolesMap));
 
-                d.addInnerHandlerChainWrapper(SecurityContextAssociationHandler.wrapper(mergedMetaData.getRunAsIdentity()));
-                d.addOuterHandlerChainWrapper(JACCContextIdHandler.wrapper(jaccContextId));
+            Function<DeploymentInfo, Registration> securityFunction = this.securityFunction.getOptionalValue();
+            if (securityFunction != null) {
+                registration = securityFunction.apply(d);
+            } else {
+                if (securityDomain != null) {
+                    d.addThreadSetupAction(new SecurityContextThreadSetupAction(securityDomain, securityDomainContextValue.getValue(), principalVersusRolesMap));
 
-                d.addLifecycleInterceptor(new RunAsLifecycleInterceptor(mergedMetaData.getRunAsIdentity()));
+                    d.addInnerHandlerChainWrapper(SecurityContextAssociationHandler.wrapper(mergedMetaData.getRunAsIdentity()));
+                    d.addOuterHandlerChainWrapper(JACCContextIdHandler.wrapper(jaccContextId));
 
+                    d.addLifecycleInterceptor(new RunAsLifecycleInterceptor(mergedMetaData.getRunAsIdentity()));
+                }
             }
 
             if (principalVersusRolesMap != null) {
@@ -983,12 +996,9 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
                 webSocketDeploymentInfo.setWorker(servletContainer.getWebsocketsWorker().getValue());
                 webSocketDeploymentInfo.setDispatchToWorkerThread(servletContainer.isDispatchWebsocketInvocationToWorker());
 
-                // Enables per-message deflate compression. This fixes JBEAP-5076.
-                // This is controlled by the system property "io.undertow.websockets.PER_MESSAGE_DEFLATE"
-                boolean enablePerMessageDeflate = Boolean.parseBoolean(
-                        WildFlySecurityManager.getPropertyPrivileged("io.undertow.websockets.PER_MESSAGE_DEFLATE", "false"));
-                if (enablePerMessageDeflate) {
-                    webSocketDeploymentInfo.addExtension(new PerMessageDeflateHandshake(false));
+                if(servletContainer.isPerMessageDeflate()) {
+                    PerMessageDeflateHandshake perMessageDeflate = new PerMessageDeflateHandshake(false, servletContainer.getDeflaterLevel());
+                    webSocketDeploymentInfo.addExtension(perMessageDeflate);
                 }
 
                 final AtomicReference<ServerActivity> serverActivity = new AtomicReference<>();
@@ -1428,6 +1438,10 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
         return suspendControllerInjectedValue;
     }
 
+    public Injector<Function> getSecurityFunctionInjector() {
+        return securityFunction;
+    }
+
     public InjectedValue<Host> getHost() {
         return host;
     }
@@ -1475,7 +1489,6 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
     }
 
     public static class Builder {
-        private String topLevelDeploymentName;
         private JBossWebMetaData mergedMetaData;
         private String deploymentName;
         private TldsMetaData tldsMetaData;
@@ -1494,13 +1507,14 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
         private List<HandlerWrapper> initialHandlerChainWrappers;
         private List<HandlerWrapper> innerHandlerChainWrappers;
         private List<HandlerWrapper> outerHandlerChainWrappers;
-        private List<ThreadSetupAction> threadSetupActions;
+        private List<ThreadSetupHandler> threadSetupActions;
         private List<ServletExtension> servletExtensions;
         private SharedSessionManagerConfig sharedSessionManagerConfig;
         private boolean explodedDeployment;
         private WebSocketDeploymentInfo webSocketDeploymentInfo;
         private File tempDir;
         private List<File> externalResources;
+        List<Predicate> allowSuspendedRequests;
 
         Builder setMergedMetaData(final JBossWebMetaData mergedMetaData) {
             this.mergedMetaData = mergedMetaData;
@@ -1592,7 +1606,7 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             return this;
         }
 
-        public Builder setThreadSetupActions(List<ThreadSetupAction> threadSetupActions) {
+        public Builder setThreadSetupActions(List<ThreadSetupHandler> threadSetupActions) {
             this.threadSetupActions = threadSetupActions;
             return this;
         }
@@ -1616,11 +1630,6 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             return this;
         }
 
-        public Builder setTopLevelDeploymentName(String topLevelDeploymentName) {
-            this.topLevelDeploymentName = topLevelDeploymentName;
-            return this;
-        }
-
         public Builder setWebSocketDeploymentInfo(WebSocketDeploymentInfo webSocketDeploymentInfo) {
             this.webSocketDeploymentInfo = webSocketDeploymentInfo;
             return this;
@@ -1635,35 +1644,42 @@ public class UndertowDeploymentInfoService implements Service<DeploymentInfo> {
             return this;
         }
 
+        public Builder setAllowSuspendedRequests(List<Predicate> allowSuspendedRequests) {
+            this.allowSuspendedRequests = allowSuspendedRequests;
+            return this;
+        }
+
         public Builder setExternalResources(List<File> externalResources) {
             this.externalResources = externalResources;
             return this;
         }
 
         public UndertowDeploymentInfoService createUndertowDeploymentInfoService() {
-            return new UndertowDeploymentInfoService(mergedMetaData, deploymentName, tldsMetaData, sharedTlds, module, scisMetaData, deploymentRoot, jaccContextId, securityDomain, attributes, contextPath, setupActions, overlays, expressionFactoryWrappers, predicatedHandlers, initialHandlerChainWrappers, innerHandlerChainWrappers, outerHandlerChainWrappers, threadSetupActions, explodedDeployment, servletExtensions, sharedSessionManagerConfig, topLevelDeploymentName, webSocketDeploymentInfo, tempDir, externalResources);
+            return new UndertowDeploymentInfoService(mergedMetaData, deploymentName, tldsMetaData, sharedTlds, module,
+                    scisMetaData, deploymentRoot, jaccContextId, securityDomain, attributes, contextPath, setupActions, overlays,
+                    expressionFactoryWrappers, predicatedHandlers, initialHandlerChainWrappers, innerHandlerChainWrappers, outerHandlerChainWrappers,
+                    threadSetupActions, explodedDeployment, servletExtensions, sharedSessionManagerConfig, webSocketDeploymentInfo, tempDir, externalResources, allowSuspendedRequests);
         }
     }
 
-    private static class UndertowThreadSetupAction implements ThreadSetupAction {
+    private static class UndertowThreadSetupAction implements ThreadSetupHandler {
 
-        private final Handle handle;
         private final SetupAction action;
 
-        public UndertowThreadSetupAction(SetupAction action) {
+        private UndertowThreadSetupAction(SetupAction action) {
             this.action = action;
-            handle = new Handle() {
-                @Override
-                public void tearDown() {
-                    UndertowThreadSetupAction.this.action.teardown(Collections.<String, Object>emptyMap());
-                }
-            };
         }
 
         @Override
-        public Handle setup(final HttpServerExchange exchange) {
-            action.setup(Collections.<String, Object>emptyMap());
-            return handle;
+        public <T, C> Action<T, C> create(Action<T, C> action) {
+            return (exchange, context) -> {
+                UndertowThreadSetupAction.this.action.setup(Collections.emptyMap());
+                try {
+                    return action.call(exchange, context);
+                } finally {
+                    UndertowThreadSetupAction.this.action.teardown(Collections.emptyMap());
+                }
+            };
         }
     }
 }

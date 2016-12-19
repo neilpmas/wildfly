@@ -33,6 +33,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import javax.management.MBeanServer;
+import javax.sql.DataSource;
 
 import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
 import org.apache.activemq.artemis.api.core.BroadcastGroupConfiguration;
@@ -40,11 +41,13 @@ import org.apache.activemq.artemis.api.core.DiscoveryGroupConfiguration;
 import org.apache.activemq.artemis.api.core.Interceptor;
 import org.apache.activemq.artemis.api.core.TransportConfiguration;
 import org.apache.activemq.artemis.core.config.Configuration;
+import org.apache.activemq.artemis.core.config.storage.DatabaseStorageConfiguration;
 import org.apache.activemq.artemis.core.io.aio.AIOSequentialFileFactory;
 import org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants;
 import org.apache.activemq.artemis.core.server.ActiveMQServer;
 import org.apache.activemq.artemis.core.server.JournalType;
 import org.apache.activemq.artemis.core.server.impl.ActiveMQServerImpl;
+import org.apache.activemq.artemis.spi.core.security.ActiveMQSecurityManager;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.services.path.AbsolutePathService;
 import org.jboss.as.controller.services.path.PathManager;
@@ -65,6 +68,7 @@ import org.jboss.msc.value.InjectedValue;
 import org.jgroups.JChannel;
 import org.wildfly.clustering.jgroups.spi.ChannelFactory;
 import org.wildfly.extension.messaging.activemq.logging.MessagingLogger;
+import org.wildfly.security.auth.server.SecurityDomain;
 
 /**
  * Service configuring and starting the {@code ActiveMQServerService}.
@@ -92,7 +96,10 @@ class ActiveMQServerService implements Service<ActiveMQServer> {
     private Map<String, SocketBinding> groupBindings = new HashMap<String, SocketBinding>();
     private final InjectedValue<PathManager> pathManager = new InjectedValue<PathManager>();
     private final InjectedValue<MBeanServer> mbeanServer = new InjectedValue<MBeanServer>();
+    // Injected DataSource for JDBC store use (can be null).
+    private final InjectedValue<DataSource> dataSource = new InjectedValue<>();
     private final InjectedValue<SecurityDomainContext> securityDomainContextValue = new InjectedValue<SecurityDomainContext>();
+    private final InjectedValue<SecurityDomain> elytronSecurityDomain = new InjectedValue<>();
     private final PathConfig pathConfig;
     // mapping between the {broadcast|discovery}-groups and the *names* of the JGroups channel they use
     private final Map<String, String> jgroupsChannels = new HashMap<String, String>();
@@ -133,6 +140,10 @@ class ActiveMQServerService implements Service<ActiveMQServer> {
 
     InjectedValue<MBeanServer> getMBeanServer() {
         return mbeanServer;
+    }
+
+    InjectedValue<DataSource> getDataSource() {
+        return dataSource;
     }
 
     Map<String, JChannel> getChannels() {
@@ -287,11 +298,26 @@ class ActiveMQServerService implements Service<ActiveMQServer> {
                 }
             }
 
-            // security
-            WildFlySecurityManager wildFlySecurityManager = new WildFlySecurityManager(securityDomainContextValue.getValue());
+            // security - if an Elytron domain has been defined we delegate security checks to the Elytron based security manager.
+            ActiveMQSecurityManager securityManager = null;
+            final SecurityDomain elytronDomain = this.elytronSecurityDomain.getOptionalValue();
+            if (elytronDomain != null) {
+                securityManager = new ElytronSecurityManager(elytronDomain);
+            }
+            else {
+                securityManager = new WildFlySecurityManager(securityDomainContextValue.getValue());
+            }
 
+            DataSource ds = dataSource.getOptionalValue();
+            if (ds != null) {
+                DatabaseStorageConfiguration dbConfiguration = (DatabaseStorageConfiguration) configuration.getStoreConfiguration();
+                dbConfiguration.setDataSource(ds);
+                configuration.setStoreConfiguration(dbConfiguration);
+                ROOT_LOGGER.infof("use JDBC store for Artemis server, bindingsTable:%s",
+                        dbConfiguration.getBindingsTableName());
+            }
             // Now start the server
-            server = new ActiveMQServerImpl(configuration, mbeanServer.getOptionalValue(), wildFlySecurityManager);
+            server = new ActiveMQServerImpl(configuration, mbeanServer.getOptionalValue(), securityManager);
             if (ActiveMQDefaultConfiguration.getDefaultClusterPassword().equals(server.getConfiguration().getClusterPassword())) {
                 server.getConfiguration().setClusterPassword(java.util.UUID.randomUUID().toString());
             }
@@ -343,6 +369,10 @@ class ActiveMQServerService implements Service<ActiveMQServer> {
 
     public Injector<SecurityDomainContext> getSecurityDomainContextInjector() {
         return securityDomainContextValue;
+    }
+
+    public Injector<SecurityDomain> getElytronDomainInjector() {
+        return this.elytronSecurityDomain;
     }
 
     public Map<String, String> getJGroupsChannels() {

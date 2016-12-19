@@ -22,6 +22,14 @@
 
 package org.wildfly.clustering.web.undertow.sso;
 
+import java.io.Externalizable;
+import java.io.Serializable;
+import java.util.function.Function;
+
+import org.jboss.marshalling.MarshallingConfiguration;
+import org.jboss.marshalling.ModularClassResolver;
+import org.jboss.modules.Module;
+import org.jboss.modules.ModuleLoader;
 import org.jboss.msc.service.Service;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceName;
@@ -31,9 +39,19 @@ import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
 import org.jboss.msc.value.InjectedValue;
 import org.wildfly.clustering.ee.Batch;
+import org.wildfly.clustering.marshalling.jboss.DynamicClassTable;
+import org.wildfly.clustering.marshalling.jboss.ExternalizerObjectTable;
+import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
+import org.wildfly.clustering.marshalling.jboss.SimpleClassTable;
+import org.wildfly.clustering.marshalling.jboss.SimpleMarshalledValueFactory;
+import org.wildfly.clustering.marshalling.jboss.SimpleMarshallingConfigurationRepository;
+import org.wildfly.clustering.marshalling.jboss.SimpleMarshallingContextFactory;
+import org.wildfly.clustering.marshalling.spi.MarshalledValueFactory;
 import org.wildfly.clustering.service.Builder;
+import org.wildfly.clustering.web.IdentifierFactory;
 import org.wildfly.clustering.web.LocalContextFactory;
 import org.wildfly.clustering.web.sso.SSOManager;
+import org.wildfly.clustering.web.sso.SSOManagerConfiguration;
 import org.wildfly.clustering.web.sso.SSOManagerFactory;
 import org.wildfly.clustering.web.undertow.IdentifierFactoryAdapter;
 
@@ -43,7 +61,33 @@ import io.undertow.server.session.SessionIdGenerator;
 /**
  * @author Paul Ferraro
  */
-public class SSOManagerBuilder implements Builder<SSOManager<AuthenticatedSession, String, Void, Batch>>, Service<SSOManager<AuthenticatedSession, String, Void, Batch>>, LocalContextFactory<Void> {
+public class SSOManagerBuilder implements Builder<SSOManager<AuthenticatedSession, String, Void, Batch>>, Service<SSOManager<AuthenticatedSession, String, Void, Batch>>, SSOManagerConfiguration<Void, MarshallingContext> {
+
+    enum MarshallingVersion implements Function<Module, MarshallingConfiguration> {
+        VERSION_1() {
+            @Override
+            public MarshallingConfiguration apply(Module module) {
+                ModuleLoader loader = module.getModuleLoader();
+                MarshallingConfiguration config = new MarshallingConfiguration();
+                config.setClassResolver(ModularClassResolver.getInstance(loader));
+                config.setClassTable(new SimpleClassTable(Serializable.class, Externalizable.class));
+                return config;
+            }
+        },
+        VERSION_2() {
+            @Override
+            public MarshallingConfiguration apply(Module module) {
+                ModuleLoader loader = module.getModuleLoader();
+                MarshallingConfiguration config = new MarshallingConfiguration();
+                config.setClassResolver(ModularClassResolver.getInstance(loader));
+                config.setClassTable(new DynamicClassTable(module.getClassLoader()));
+                config.setObjectTable(new ExternalizerObjectTable(module.getClassLoader()));
+                return config;
+            }
+        },
+        ;
+        static final MarshallingVersion CURRENT = VERSION_2;
+    }
 
     private final InjectedValue<SessionIdGenerator> generator = new InjectedValue<>();
     @SuppressWarnings("rawtypes")
@@ -52,6 +96,7 @@ public class SSOManagerBuilder implements Builder<SSOManager<AuthenticatedSessio
     private final ServiceName generatorServiceName;
 
     private volatile SSOManager<AuthenticatedSession, String, Void, Batch> manager;
+    private volatile MarshallingContext context;
 
     public SSOManagerBuilder(ServiceName factoryServiceName, ServiceName generatorServiceName) {
         this.factoryServiceName = factoryServiceName;
@@ -74,7 +119,9 @@ public class SSOManagerBuilder implements Builder<SSOManager<AuthenticatedSessio
     @Override
     public void start(StartContext context) throws StartException {
         SSOManagerFactory<AuthenticatedSession, String, Batch> factory = this.factory.getValue();
-        this.manager = factory.createSSOManager(new IdentifierFactoryAdapter(this.generator.getValue()), this);
+        Module module = Module.forClass(this.getClass());
+        this.context = new SimpleMarshallingContextFactory().createMarshallingContext(new SimpleMarshallingConfigurationRepository(MarshallingVersion.class, MarshallingVersion.CURRENT, module), null);
+        this.manager = factory.createSSOManager(this);
         this.manager.start();
     }
 
@@ -82,6 +129,7 @@ public class SSOManagerBuilder implements Builder<SSOManager<AuthenticatedSessio
     public void stop(StopContext context) {
         this.manager.stop();
         this.manager = null;
+        this.context = null;
     }
 
     @Override
@@ -90,7 +138,22 @@ public class SSOManagerBuilder implements Builder<SSOManager<AuthenticatedSessio
     }
 
     @Override
-    public Void createLocalContext() {
-        return null;
+    public IdentifierFactory<String> getIdentifierFactory() {
+        return new IdentifierFactoryAdapter(this.generator.getValue());
+    }
+
+    @Override
+    public LocalContextFactory<Void> getLocalContextFactory() {
+        return () -> null;
+    }
+
+    @Override
+    public MarshalledValueFactory<MarshallingContext> getMarshalledValueFactory() {
+        return new SimpleMarshalledValueFactory(this.context);
+    }
+
+    @Override
+    public MarshallingContext getMarshallingContext() {
+        return this.context;
     }
 }

@@ -22,29 +22,35 @@
 
 package org.wildfly.extension.undertow;
 
-import static org.wildfly.extension.undertow.UndertowExtension.MODEL_VERSION_3_2_0;
-
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jboss.as.controller.AbstractWriteAttributeHandler;
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.OperationContext;
+import org.jboss.as.controller.OperationFailedException;
+import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.PersistentResourceDefinition;
 import org.jboss.as.controller.ReloadRequiredRemoveStepHandler;
+import org.jboss.as.controller.ReloadRequiredWriteAttributeHandler;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
 import org.jboss.as.controller.SubsystemRegistration;
 import org.jboss.as.controller.access.management.SensitiveTargetAccessConstraintDefinition;
-import org.jboss.as.controller.registry.AttributeAccess;
+import org.jboss.as.controller.registry.ManagementResourceRegistration;
+import org.jboss.as.controller.transform.description.DiscardAttributeChecker;
+import org.jboss.as.controller.transform.description.RejectAttributeChecker;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.as.controller.transform.description.TransformationDescription;
 import org.jboss.as.controller.transform.description.TransformationDescriptionBuilder;
+import org.jboss.dmr.ModelNode;
+import org.jboss.dmr.ModelType;
 import org.jboss.dmr.ValueExpression;
+import org.jboss.msc.service.ServiceController;
 import org.jboss.security.SecurityConstants;
 import org.wildfly.extension.undertow.filters.FilterDefinitions;
 import org.wildfly.extension.undertow.handlers.HandlerDefinitions;
-import org.jboss.dmr.ModelNode;
-import org.jboss.dmr.ModelType;
 
 /**
  * @author <a href="mailto:tomaz.cerar@redhat.com">Tomaz Cerar</a> (c) 2012 Red Hat Inc.
@@ -52,27 +58,28 @@ import org.jboss.dmr.ModelType;
 class UndertowRootDefinition extends PersistentResourceDefinition {
     protected static final SimpleAttributeDefinition DEFAULT_VIRTUAL_HOST =
             new SimpleAttributeDefinitionBuilder(Constants.DEFAULT_VIRTUAL_HOST, ModelType.STRING, true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setRestartAllServices()
                     .setDefaultValue(new ModelNode("default-host"))
                     .build();
     protected static final SimpleAttributeDefinition DEFAULT_SERVLET_CONTAINER =
             new SimpleAttributeDefinitionBuilder(Constants.DEFAULT_SERVLET_CONTAINER, ModelType.STRING, true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setRestartAllServices()
                     .setDefaultValue(new ModelNode("default"))
                     .build();
     protected static final SimpleAttributeDefinition DEFAULT_SERVER =
             new SimpleAttributeDefinitionBuilder(Constants.DEFAULT_SERVER, ModelType.STRING, true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setRestartAllServices()
                     .setDefaultValue(new ModelNode("default-server"))
                     .build();
     protected static final SimpleAttributeDefinition INSTANCE_ID =
             new SimpleAttributeDefinitionBuilder(Constants.INSTANCE_ID, ModelType.STRING, true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setRestartAllServices()
                     .setAllowExpression(true)
                     .setDefaultValue(new ModelNode().set(new ValueExpression("${jboss.node.name}")))
                     .build();
     protected static final SimpleAttributeDefinition STATISTICS_ENABLED =
                 new SimpleAttributeDefinitionBuilder(Constants.STATISTICS_ENABLED, ModelType.BOOLEAN, true)
+                        .setRestartAllServices()
                         .setAllowExpression(true)
                         .setDefaultValue(new ModelNode(false))
                         .build();
@@ -81,16 +88,19 @@ class UndertowRootDefinition extends PersistentResourceDefinition {
                     .setAllowExpression(true)
                     .setDefaultValue(new ModelNode(SecurityConstants.DEFAULT_APPLICATION_POLICY))
                     .addAccessConstraint(SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN_REF)
+                    .setRestartAllServices()
                     .build();
 
 
-    static final AttributeDefinition[] ATTRIBUTES = {DEFAULT_VIRTUAL_HOST, DEFAULT_SERVLET_CONTAINER, DEFAULT_SERVER, INSTANCE_ID, STATISTICS_ENABLED, DEFAULT_SECURITY_DOMAIN};
+    static final ApplicationSecurityDomainDefinition APPLICATION_SECURITY_DOMAIN = ApplicationSecurityDomainDefinition.INSTANCE;
+    static final AttributeDefinition[] ATTRIBUTES = { DEFAULT_VIRTUAL_HOST, DEFAULT_SERVLET_CONTAINER, DEFAULT_SERVER, INSTANCE_ID, STATISTICS_ENABLED, DEFAULT_SECURITY_DOMAIN };
     static final PersistentResourceDefinition[] CHILDREN = {
             BufferCacheDefinition.INSTANCE,
             ServerDefinition.INSTANCE,
             ServletContainerDefinition.INSTANCE,
             HandlerDefinitions.INSTANCE,
-            FilterDefinitions.INSTANCE
+            FilterDefinitions.INSTANCE,
+            APPLICATION_SECURITY_DOMAIN
     };
 
     public static final UndertowRootDefinition INSTANCE = new UndertowRootDefinition();
@@ -98,7 +108,7 @@ class UndertowRootDefinition extends PersistentResourceDefinition {
     private UndertowRootDefinition() {
         super(UndertowExtension.SUBSYSTEM_PATH,
                 UndertowExtension.getResolver(),
-                UndertowSubsystemAdd.INSTANCE,
+                new UndertowSubsystemAdd(APPLICATION_SECURITY_DOMAIN.getKnownSecurityDomainPredicate()),
                 ReloadRequiredRemoveStepHandler.INSTANCE);
     }
 
@@ -113,13 +123,95 @@ class UndertowRootDefinition extends PersistentResourceDefinition {
     }
 
     static void registerTransformers(SubsystemRegistration subsystemRegistration) {
-        registerTransformers_3_2_0(subsystemRegistration);
+        registerTransformers_EAP_7_0_0(subsystemRegistration);
     }
 
-    private static void registerTransformers_3_2_0(SubsystemRegistration subsystemRegistration) {
+    private static void registerTransformers_EAP_7_0_0(SubsystemRegistration subsystemRegistration) {
         final ResourceTransformationDescriptionBuilder builder = TransformationDescriptionBuilder.Factory.createSubsystemInstance();
 
-        TransformationDescription.Tools.register(builder.build(), subsystemRegistration, MODEL_VERSION_3_2_0);
+        // Version 4.0.0 adds the new SSL_CONTEXT attribute, however it is mutually exclusive to the SECURITY_REALM attribute, both of which can
+        // now be set to 'undefined' so instead of rejecting a defined SSL_CONTEXT, reject an undefined SECURITY_REALM as that covers the
+        // two new combinations.
+        builder.addChildResource(UndertowExtension.HTTPS_LISTENER_PATH)
+            .getAttributeBuilder()
+                .addRejectCheck(RejectAttributeChecker.UNDEFINED, Constants.SECURITY_REALM)
+                .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(false)), HttpListenerResourceDefinition.REQUIRE_HOST_HTTP11.getName())
+                .addRejectCheck(RejectAttributeChecker.DEFINED, HttpListenerResourceDefinition.REQUIRE_HOST_HTTP11.getName())
+                .end();
+
+        builder.addChildResource(UndertowExtension.HTTP_LISTENER_PATH)
+                .getAttributeBuilder()
+                .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(false)), HttpListenerResourceDefinition.REQUIRE_HOST_HTTP11.getName())
+                .addRejectCheck(RejectAttributeChecker.DEFINED, HttpListenerResourceDefinition.REQUIRE_HOST_HTTP11.getName())
+                .end();
+
+        builder.addChildResource(UndertowExtension.PATH_SERVLET_CONTAINER)
+                .getAttributeBuilder()
+                    .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.DISABLE_FILE_WATCH_SERVICE)
+                .end()
+                .addChildResource(UndertowExtension.PATH_WEBSOCKETS)
+                    .getAttributeBuilder()
+                    .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(false)), Constants.PER_MESSAGE_DEFLATE)
+                    .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.PER_MESSAGE_DEFLATE, Constants.DEFLATER_LEVEL)
+                .end();
+
+        builder.addChildResource(UndertowExtension.PATH_FILTERS)
+            .addChildResource(PathElement.pathElement(Constants.MOD_CLUSTER))
+                .getAttributeBuilder()
+                    .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.SSL_CONTEXT)
+                    .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(1)), Constants.MAX_RETRIES)
+                    .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.MAX_RETRIES)
+                    .addRejectCheck(RejectAttributeChecker.UNDEFINED, Constants.ADVERTISE_SOCKET_BINDING)
+                    .end();
+
+        builder.addChildResource(UndertowExtension.PATH_HANDLERS)
+            .addChildResource(PathElement.pathElement(Constants.REVERSE_PROXY))
+                .getAttributeBuilder()
+                    .setDiscard(new DiscardAttributeChecker.DiscardAttributeValueChecker(new ModelNode(1)), Constants.MAX_RETRIES)
+                    .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.MAX_RETRIES)
+                    .end()
+                .addChildResource(PathElement.pathElement(Constants.HOST))
+                    .getAttributeBuilder()
+                        .addRejectCheck(RejectAttributeChecker.DEFINED, Constants.SSL_CONTEXT)
+                        .end();
+
+        builder.discardChildResource(PathElement.pathElement(Constants.APPLICATION_SECURITY_DOMAIN));
+
+        TransformationDescription.Tools.register(builder.build(), subsystemRegistration, UndertowExtension.MODEL_VERSION_EAP7_0_0);
     }
 
+    @Override
+    public void registerAttributes(ManagementResourceRegistration resourceRegistration) {
+        ReloadRequiredWriteAttributeHandler handler = new ReloadRequiredWriteAttributeHandler(getAttributes());
+        for (AttributeDefinition attr : getAttributes()) {
+            if(attr == STATISTICS_ENABLED) {
+                resourceRegistration.registerReadWriteAttribute(attr, null, new AbstractWriteAttributeHandler<Void> (STATISTICS_ENABLED) {
+                    @Override
+                    protected boolean applyUpdateToRuntime(OperationContext context, ModelNode operation, String attributeName, ModelNode resolvedValue, ModelNode currentValue, HandbackHolder<Void> handbackHolder) throws OperationFailedException {
+                        ServiceController<?> controller = context.getServiceRegistry(false).getService(UndertowService.UNDERTOW);
+                        if(controller != null) {
+                            UndertowService service = (UndertowService) controller.getService();
+                            if(service != null) {
+                                service.setStatisticsEnabled(resolvedValue.asBoolean());
+                            }
+                        }
+                        return false;
+                    }
+
+                    @Override
+                    protected void revertUpdateToRuntime(OperationContext context, ModelNode operation, String attributeName, ModelNode valueToRestore, ModelNode valueToRevert, Void handback) throws OperationFailedException {
+                        ServiceController<?> controller = context.getServiceRegistry(false).getService(UndertowService.UNDERTOW);
+                        if(controller != null) {
+                            UndertowService service = (UndertowService) controller.getService();
+                            if(service != null) {
+                                service.setStatisticsEnabled(valueToRestore.asBoolean());
+                            }
+                        }
+                    }
+                });
+            } else {
+                resourceRegistration.registerReadWriteAttribute(attr, null, handler);
+            }
+        }
+    }
 }

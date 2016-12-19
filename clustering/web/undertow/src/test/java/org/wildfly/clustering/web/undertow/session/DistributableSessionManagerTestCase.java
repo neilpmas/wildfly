@@ -41,6 +41,7 @@ import io.undertow.server.HttpServerExchange;
 import io.undertow.server.session.SessionConfig;
 import io.undertow.server.session.SessionListener;
 import io.undertow.server.session.SessionListeners;
+
 import org.junit.Before;
 import org.junit.Test;
 import org.wildfly.clustering.ee.Batch;
@@ -57,7 +58,8 @@ public class DistributableSessionManagerTestCase {
     private final SessionListener listener = mock(SessionListener.class);
     private final SessionListeners listeners = new SessionListeners();
     private final RecordableSessionManagerStatistics statistics = mock(RecordableSessionManagerStatistics.class);
-    private DistributableSessionManager adapter = new DistributableSessionManager(this.deploymentName, this.manager, this.listeners, this.statistics);
+
+    private final DistributableSessionManager adapter = new DistributableSessionManager(this.deploymentName, this.manager, this.listeners, this.statistics);
 
     @Before
     public void init() {
@@ -99,11 +101,8 @@ public class DistributableSessionManagerTestCase {
         SessionConfig config = mock(SessionConfig.class);
         Session<LocalSessionContext> session = mock(Session.class);
         String sessionId = "session";
-        String existingSessionId = "existing";
 
-        when(this.manager.createIdentifier()).thenReturn(existingSessionId, sessionId);
-        when(this.manager.containsSession(existingSessionId)).thenReturn(true);
-        when(this.manager.containsSession(sessionId)).thenReturn(false);
+        when(this.manager.createIdentifier()).thenReturn(sessionId);
         when(this.manager.createSession(sessionId)).thenReturn(session);
         when(this.manager.getBatcher()).thenReturn(batcher);
         when(batcher.createBatch()).thenReturn(batch);
@@ -135,7 +134,6 @@ public class DistributableSessionManagerTestCase {
         String sessionId = "session";
 
         when(config.findSessionId(exchange)).thenReturn(sessionId);
-        when(this.manager.containsSession(sessionId)).thenReturn(false);
         when(this.manager.createSession(sessionId)).thenReturn(session);
         when(this.manager.getBatcher()).thenReturn(batcher);
         when(batcher.createBatch()).thenReturn(batch);
@@ -154,6 +152,32 @@ public class DistributableSessionManagerTestCase {
 
         String result = sessionAdapter.getId();
         assertSame(expected, result);
+    }
+
+    @Test
+    public void createSessionAlreadyExists() {
+        HttpServerExchange exchange = new HttpServerExchange(null);
+        Batcher<Batch> batcher = mock(Batcher.class);
+        Batch batch = mock(Batch.class);
+        SessionConfig config = mock(SessionConfig.class);
+        String sessionId = "session";
+
+        when(config.findSessionId(exchange)).thenReturn(sessionId);
+        when(this.manager.createSession(sessionId)).thenReturn(null);
+        when(this.manager.getBatcher()).thenReturn(batcher);
+        when(batcher.createBatch()).thenReturn(batch);
+
+        IllegalStateException exception = null;
+        try {
+            this.adapter.createSession(exchange, config);
+        } catch (IllegalStateException e) {
+            exception = e;
+        }
+
+        assertNotNull(exception);
+
+        verify(batch).discard();
+        verify(batch).close();
     }
 
     @Test
@@ -190,39 +214,26 @@ public class DistributableSessionManagerTestCase {
     public void getSessionNoSessionId() {
         HttpServerExchange exchange = new HttpServerExchange(null);
         SessionConfig config = mock(SessionConfig.class);
-        Batcher<Batch> batcher = mock(Batcher.class);
-        Batch batch = mock(Batch.class);
 
-        when(this.manager.getBatcher()).thenReturn(batcher);
-        when(batcher.createBatch()).thenReturn(batch);
         when(config.findSessionId(exchange)).thenReturn(null);
 
         io.undertow.server.session.Session sessionAdapter = this.adapter.getSession(exchange, config);
 
         assertNull(sessionAdapter);
-
-        verify(batch).close();
-        verify(batcher, never()).suspendBatch();
     }
 
     @Test
     public void getSessionInvalidCharacters() {
         HttpServerExchange exchange = new HttpServerExchange(null);
-        Batcher<Batch> batcher = mock(Batcher.class);
-        Batch batch = mock(Batch.class);
         SessionConfig config = mock(SessionConfig.class);
         String sessionId = "session+";
 
         when(config.findSessionId(exchange)).thenReturn(sessionId);
-        when(this.manager.getBatcher()).thenReturn(batcher);
-        when(batcher.createBatch()).thenReturn(batch);
 
         io.undertow.server.session.Session sessionAdapter = this.adapter.getSession(exchange, config);
 
         assertNull(sessionAdapter);
 
-        verify(batch).close();
-        verify(batcher, never()).suspendBatch();
         verify(this.manager, never()).findSession(sessionId);
     }
 

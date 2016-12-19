@@ -151,12 +151,12 @@ public interface UndertowLogger extends BasicLogger {
 
 
     @LogMessage(level = INFO)
-    @Message(id = 21, value = "Registered web context: %s")
-    void registerWebapp(String webappPath);
+    @Message(id = 21, value = "Registered web context: '%s' for server '%s'")
+    void registerWebapp(String webappPath, String serverName);
 
     @LogMessage(level = INFO)
-    @Message(id = 22, value = "Unregistered web context: %s")
-    void unregisterWebapp(String webappPath);
+    @Message(id = 22, value = "Unregistered web context: '%s' from server '%s'")
+    void unregisterWebapp(String webappPath, String serverName);
 
     @LogMessage(level = INFO)
     @Message(id = 23, value = "Skipped SCI for jar: %s.")
@@ -308,9 +308,9 @@ public interface UndertowLogger extends BasicLogger {
     @Message(id = 70, value = "Could not load handler %s from %s module")
     RuntimeException couldNotLoadHandlerFromModule(String className, String moduleName, @Cause Exception e);
 
-    @LogMessage(level = ERROR)
-    @Message(id = 71, value = "Jetty ALPN not found. HTTP2 and SPDY are not available. Please make sure Jetty ALPN is on the boot class path.")
-    void alpnNotFound();
+    @LogMessage(level = WARN)
+    @Message(id = 71, value = "No ALPN provider found, HTTP/2 will not be enabled. To remove this message set enable-http2 to false on the listener %s in the Undertow subsystem.")
+    void alpnNotFound(String listener);
 
     @Message(id = 72, value = "Could not find configured external path %s")
     DeploymentUnitProcessingException couldNotFindExternalPath(File path);
@@ -336,8 +336,8 @@ public interface UndertowLogger extends BasicLogger {
     @Message(id = 77, value = "Error invoking secure response")
     void errorInvokingSecureResponse(@Cause Exception e);
 
-    @Message(id = 79, value = "No SSL Context available from security realm. Either the realm is not configured for SSL, or the server has not been reloaded since the SSL config was added.")
-    IllegalStateException noSslContextInSecurityRealm();
+    @Message(id = 79, value = "No SSL Context available from security realm '%s'. Either the realm is not configured for SSL, or the server has not been reloaded since the SSL config was added.")
+    IllegalStateException noSslContextInSecurityRealm(String securityRealm);
 
     @LogMessage(level = WARN)
     @Message(id = 80, value = "Valves are no longer supported, %s is not activated.")
@@ -352,4 +352,23 @@ public interface UndertowLogger extends BasicLogger {
 
     @Message(id = 83, value = "%s is not allowed to be null")
     String nullNotAllowed(String name);
+
+    @Message(id = 84, value = "There are no mechanisms available from the HttpAuthenticationFactory.")
+    IllegalStateException noMechanismsAvailable();
+
+    @Message(id = 85, value = "The required mechanism '%s' is not available from the HttpAuthenticationFactory.")
+    IllegalStateException requiredMechanismNotAvailable(String mechanismName);
+
+    @Message(id = 86, value = "No authentication mechanisms have been selected.")
+    IllegalStateException noMechanismsSelected();
+
+    @Message(id = 87, value = "Duplicate default web module '%s' configured on server '%s', host '%s'")
+    IllegalArgumentException duplicateDefaultWebModuleMapping(String defaultDeploymentName, String serverName, String hostName);
+
+//    @LogMessage(level = WARN)
+//    @Message(id = 88, value = "HTTP/2 will not be enabled as TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 is not enabled. You may need to install JCE to enable strong ciphers to allow HTTP/2 to function.")
+//    void noStrongCiphers();
+
+    @Message(id = 89, value = "Predicate %s was not valid, message was: %s")
+    String predicateNotValid(String predicate, String error);
 }

@@ -27,24 +27,26 @@ import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.time.Duration;
 
+import org.kohsuke.MetaInfServices;
 import org.wildfly.clustering.marshalling.Externalizer;
-import org.wildfly.clustering.marshalling.jboss.IndexExternalizer;
+import org.wildfly.clustering.marshalling.spi.IndexExternalizer;
 
 /**
  * Optimize marshalling of last accessed timestamp.
  * @author Paul Ferraro
  */
+@MetaInfServices(Externalizer.class)
 public class SessionAccessMetaDataExternalizer implements Externalizer<SessionAccessMetaData> {
 
     @Override
     public void writeObject(ObjectOutput output, SessionAccessMetaData metaData) throws IOException {
-        IndexExternalizer.VARIABLE.writeObject(output, (int) metaData.getLastAccessedDuration().getSeconds());
+        IndexExternalizer.VARIABLE.writeData(output, (int) metaData.getLastAccessedDuration().getSeconds());
     }
 
     @Override
     public SessionAccessMetaData readObject(ObjectInput input) throws IOException, ClassNotFoundException {
         SessionAccessMetaData metaData = new SimpleSessionAccessMetaData();
-        metaData.setLastAccessedDuration(Duration.ofSeconds(IndexExternalizer.VARIABLE.readObject(input)));
+        metaData.setLastAccessedDuration(Duration.ofSeconds(IndexExternalizer.VARIABLE.readData(input)));
         return metaData;
     }
 

@@ -86,7 +86,7 @@ public class NamingExtension implements Extension {
     public void initialize(ExtensionContext context) {
         final SubsystemRegistration subsystem = context.registerSubsystem(SUBSYSTEM_NAME, CURRENT_MODEL_VERSION);
 
-        final ManagementResourceRegistration registration = subsystem.registerSubsystemModel(NamingSubsystemRootResourceDefinition.INSTANCE);
+        final ManagementResourceRegistration registration = subsystem.registerSubsystemModel(new NamingSubsystemRootResourceDefinition());
 
         registration.registerOperationHandler(GenericSubsystemDescribeHandler.DEFINITION, GenericSubsystemDescribeHandler.INSTANCE);
 
@@ -122,12 +122,12 @@ public class NamingExtension implements Extension {
      */
     @Override
     public void initializeParsers(ExtensionParsingContext context) {
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_0, new NamingSubsystem10Parser(context.getProcessType() == ProcessType.APPLICATION_CLIENT));
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_1, NamingSubsystem11Parser.INSTANCE);
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_2, NamingSubsystem12Parser.INSTANCE);
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_3, NamingSubsystem13Parser.INSTANCE);
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_4, NamingSubsystem14Parser.INSTANCE);
-        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_2_0, NamingSubsystem20Parser.INSTANCE);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_0, () -> new NamingSubsystem10Parser(context.getProcessType() == ProcessType.APPLICATION_CLIENT));
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_1, NamingSubsystem11Parser::new);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_2, NamingSubsystem12Parser::new);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_3, NamingSubsystem13Parser::new);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_1_4, NamingSubsystem14Parser::new);
+        context.setSubsystemXmlMapping(SUBSYSTEM_NAME, NAMESPACE_2_0, NamingSubsystem20Parser::new);
     }
 
 

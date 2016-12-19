@@ -46,6 +46,7 @@ import org.jboss.as.controller.SimpleOperationDefinitionBuilder;
 import org.jboss.as.controller.SimpleResourceDefinition;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.registry.ManagementResourceRegistration;
+import org.jboss.as.controller.registry.OperationEntry;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 import org.jboss.msc.service.ServiceController;
@@ -65,6 +66,12 @@ public class JaxrsDeploymentDefinition extends SimpleResourceDefinition {
 
     public static final JaxrsDeploymentDefinition DEPLOYMENT_INSTANCE = new JaxrsDeploymentDefinition(true);
     public static final JaxrsDeploymentDefinition SUBSYSTEM_INSTANCE = new JaxrsDeploymentDefinition(false);
+    private static final SimpleOperationDefinition ADD_DEFINITION = new SimpleOperationDefinitionBuilder(ModelDescriptionConstants.ADD, JaxrsExtension.getResolver())
+                .setEntryType( OperationEntry.EntryType.PRIVATE)
+                .build();
+    private static final SimpleOperationDefinition REMOVE_DEFINITION = new SimpleOperationDefinitionBuilder(ModelDescriptionConstants.REMOVE, JaxrsExtension.getResolver())
+                .setEntryType( OperationEntry.EntryType.PRIVATE)
+                .build();
 
     public static final String SHOW_RESOURCES = "show-resources";
     public static final AttributeDefinition CLASSNAME
@@ -78,16 +85,17 @@ public class JaxrsDeploymentDefinition extends SimpleResourceDefinition {
     public static final ObjectTypeAttributeDefinition JAXRS_RESOURCE
             = new ObjectTypeAttributeDefinition.Builder("jaxrs-resource", CLASSNAME, PATH, METHODS).setStorageRuntime().build();
 
-    private boolean showResources;
+    private final boolean showResources;
     private JaxrsDeploymentDefinition(boolean showResources) {
-         super(JaxrsExtension.SUBSYSTEM_PATH, JaxrsExtension.getResolver(), JaxrsSubsystemAdd.INSTANCE,
-                ReloadRequiredRemoveStepHandler.INSTANCE);
+         super(JaxrsExtension.SUBSYSTEM_PATH, JaxrsExtension.getResolver());
          this.showResources = showResources;
     }
 
     @Override
     public void registerOperations(ManagementResourceRegistration resourceRegistration) {
         super.registerOperations(resourceRegistration);
+        resourceRegistration.registerOperationHandler(ADD_DEFINITION, JaxrsSubsystemAdd.INSTANCE);
+        resourceRegistration.registerOperationHandler(REMOVE_DEFINITION, ReloadRequiredRemoveStepHandler.INSTANCE);
         if(showResources) {
             resourceRegistration.registerOperationHandler(ShowJaxrsResourcesHandler.DEFINITION, new ShowJaxrsResourcesHandler());
         }
@@ -99,29 +107,36 @@ public class JaxrsDeploymentDefinition extends SimpleResourceDefinition {
                 .setReadOnly()
                 .setRuntimeOnly()
                 .setReplyType(ModelType.LIST)
+                .setDeprecated(JaxrsExtension.MODEL_VERSION_1_1_0)
                 .setReplyParameters(JAXRS_RESOURCE).build();
 
 
         void handle(ModelNode response, String contextRootPath, Collection<String> servletMappings, String mapping, List<ResourceInvoker> resources) {
             for (ResourceInvoker resourceInvoker : resources) {
-                ResourceMethodInvoker resource = (ResourceMethodInvoker) resourceInvoker;
-                final ModelNode node = new ModelNode();
-                node.get(CLASSNAME.getName()).set(resource.getResourceClass().getCanonicalName());
-                node.get(PATH.getName()).set(mapping);
-                for (String servletMapping : servletMappings) {
-                    String method = formatMethod(resource, servletMapping, mapping, contextRootPath);
-                    for (final String httpMethod : resource.getHttpMethods()) {
-                        node.get(METHODS.getName()).add(String.format(method, httpMethod));
+                if (ResourceMethodInvoker.class.isAssignableFrom(resourceInvoker.getClass())) {
+                    ResourceMethodInvoker resource = (ResourceMethodInvoker) resourceInvoker;
+                    final ModelNode node = new ModelNode();
+                    node.get(CLASSNAME.getName()).set(resource.getResourceClass().getCanonicalName());
+                    node.get(PATH.getName()).set(mapping);
+                    for (String servletMapping : servletMappings) {
+                        String method = formatMethod(resource, servletMapping, mapping, contextRootPath);
+                        for (final String httpMethod : resource.getHttpMethods()) {
+                            node.get(METHODS.getName()).add(String.format(method, httpMethod));
+                        }
                     }
+                    response.add(node);
                 }
-                response.add(node);
             }
         }
 
         private String formatMethod(ResourceMethodInvoker resource, String servletMapping, String path, String contextRootPath) {
             StringBuilder builder = new StringBuilder();
             builder.append("%1$s ");
-            builder.append(contextRootPath).append('/').append(servletMapping.replaceAll("\\*", "")).append(path);
+            String servletPath = servletMapping.replaceAll("\\*", "");
+            if(servletPath.charAt(0) == '/') {
+                servletPath = servletPath.substring(1);
+            }
+            builder.append(contextRootPath).append('/').append(servletPath).append(path);
             builder.append(" - ").append(resource.getResourceClass().getCanonicalName()).append('.').append(resource.getMethod().getName()).append('(');
             if (resource.getMethod().getParameterTypes().length > 0) {
                 builder.append("...");

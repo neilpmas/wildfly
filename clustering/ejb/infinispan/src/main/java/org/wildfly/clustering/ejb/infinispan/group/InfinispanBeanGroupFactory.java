@@ -25,9 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.infinispan.Cache;
 import org.infinispan.context.Flag;
+import org.wildfly.clustering.ee.Mutator;
 import org.wildfly.clustering.ee.infinispan.CacheProperties;
 import org.wildfly.clustering.ee.infinispan.CacheEntryMutator;
-import org.wildfly.clustering.ee.infinispan.Mutator;
 import org.wildfly.clustering.ejb.infinispan.BeanEntry;
 import org.wildfly.clustering.ejb.infinispan.BeanGroup;
 import org.wildfly.clustering.ejb.infinispan.BeanGroupEntry;
@@ -36,8 +36,8 @@ import org.wildfly.clustering.ejb.infinispan.BeanGroupKey;
 import org.wildfly.clustering.ejb.infinispan.BeanKey;
 import org.wildfly.clustering.ejb.infinispan.bean.InfinispanBeanKey;
 import org.wildfly.clustering.ejb.infinispan.logging.InfinispanEjbLogger;
-import org.wildfly.clustering.marshalling.jboss.MarshalledValueFactory;
 import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
+import org.wildfly.clustering.marshalling.spi.MarshalledValueFactory;
 
 /**
  * Encapsulates the cache mapping strategy of a bean group.
@@ -49,7 +49,6 @@ import org.wildfly.clustering.marshalling.jboss.MarshallingContext;
  */
 public class InfinispanBeanGroupFactory<I, T> implements BeanGroupFactory<I, T> {
 
-    private static final Flag[] EVICTION_FLAGS = new Flag[] { Flag.CACHE_MODE_LOCAL, Flag.SKIP_CACHE_LOAD, Flag.ZERO_LOCK_ACQUISITION_TIMEOUT, Flag.FAIL_SILENTLY };
     private final Cache<BeanGroupKey<I>, BeanGroupEntry<I, T>> cache;
     private final Cache<BeanGroupKey<I>, BeanGroupEntry<I, T>> findCache;
     private final Cache<BeanKey<I>, BeanEntry<I>> beanCache;
@@ -85,16 +84,13 @@ public class InfinispanBeanGroupFactory<I, T> implements BeanGroupFactory<I, T> 
     }
 
     @Override
-    public void evict(I id) {
+    public boolean evict(I id) {
         BeanGroupKey<I> key = this.createKey(id);
         BeanGroupEntry<I, T> entry = this.findCache.getAdvancedCache().withFlags(EVICTION_FLAGS).get(key);
         if (entry != null) {
             try {
                 for (I beanId : entry.getBeans().get(this.context).keySet()) {
-                    BeanKey<I> beanKey = new InfinispanBeanKey<>(beanId);
-                    if (this.beanCache.getAdvancedCache().withFlags(EVICTION_FLAGS).get(beanKey) != null) {
-                        this.beanCache.evict(beanKey);
-                    }
+                    this.beanCache.evict(new InfinispanBeanKey<>(beanId));
                 }
                 try {
                     this.cache.evict(key);
@@ -105,6 +101,7 @@ public class InfinispanBeanGroupFactory<I, T> implements BeanGroupFactory<I, T> 
                 InfinispanEjbLogger.ROOT_LOGGER.warn(e.getLocalizedMessage(), e);
             }
         }
+        return entry != null;
     }
 
     @Override

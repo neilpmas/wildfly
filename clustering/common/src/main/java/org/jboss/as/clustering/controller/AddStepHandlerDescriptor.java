@@ -23,9 +23,11 @@
 package org.jboss.as.clustering.controller;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.OperationStepHandler;
 import org.jboss.as.controller.PathElement;
 
 /**
@@ -52,4 +54,24 @@ public interface AddStepHandlerDescriptor extends WriteAttributeStepHandlerDescr
      * @return a collection of resource paths
      */
     Set<PathElement> getRequiredSingletonChildren();
+
+    /**
+     * Returns a mapping of attribute translations
+     * @return an attribute translation mapping
+     */
+    Map<AttributeDefinition, AttributeTranslation> getAttributeTranslations();
+
+    /**
+     * Returns a collection of translators for an add operation.
+     * Translators are executed prior to populating the resource model from the add operation parameters.
+     * @return a collection of consumers that translate an add operation
+     */
+    Collection<OperationStepHandler> getOperationTranslators();
+
+    /**
+     * Returns a collection of handlers that register runtime resources
+     * Runtime resource registrations are executed in a separate MODEL stage step.
+     * @return a collection of operation step handlers
+     */
+    Collection<OperationStepHandler> getRuntimeResourceRegistrations();
 }

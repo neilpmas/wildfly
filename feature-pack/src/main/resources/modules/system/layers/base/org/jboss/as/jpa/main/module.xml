@@ -22,7 +22,7 @@
   ~ 02110-1301 USA, or see the FSF site: http://www.fsf.org.
   -->
 
-<module xmlns="urn:jboss:module:1.3" name="org.jboss.as.jpa">
+<module xmlns="urn:jboss:module:1.5" name="org.jboss.as.jpa">
     <properties>
         <property name="jboss.api" value="private"/>
     </properties>
@@ -74,6 +74,7 @@
         <module name="org.jboss.metadata.common"/>
         <module name="org.jboss.vfs"/>
         <module name="org.jboss.weld.core"/>
+        <module name="org.jboss.as.weld.common"/>
         <module name="org.wildfly.clustering.infinispan.spi"/>
         <module name="org.wildfly.clustering.service"/>
 

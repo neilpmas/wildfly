@@ -34,26 +34,30 @@ import org.jboss.as.clustering.controller.ResourceServiceBuilder;
 import org.jboss.as.clustering.dmr.ModelNodes;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
+import org.jboss.as.controller.PathAddress;
 import org.jboss.dmr.ModelNode;
 import org.wildfly.clustering.service.Builder;
 
 /**
  * @author Paul Ferraro
  */
-public class EvictionBuilder extends CacheComponentBuilder<EvictionConfiguration> implements ResourceServiceBuilder<EvictionConfiguration> {
+public class EvictionBuilder extends ComponentBuilder<EvictionConfiguration> implements ResourceServiceBuilder<EvictionConfiguration> {
 
     private final EvictionConfigurationBuilder builder = new ConfigurationBuilder().eviction();
 
-    EvictionBuilder(String containerName, String cacheName) {
-        super(CacheComponent.EVICTION, containerName, cacheName);
+    private volatile EvictionStrategy strategy;
+
+    EvictionBuilder(PathAddress cacheAddress) {
+        super(CacheComponent.EVICTION, cacheAddress);
     }
 
     @Override
     public Builder<EvictionConfiguration> configure(OperationContext context, ModelNode model) throws OperationFailedException {
-        EvictionStrategy strategy = ModelNodes.asEnum(STRATEGY.getDefinition().resolveModelAttribute(context, model), EvictionStrategy.class);
-        this.builder.strategy(strategy);
-        if (strategy.isEnabled()) {
-            this.builder.type(EvictionType.COUNT).size(MAX_ENTRIES.getDefinition().resolveModelAttribute(context, model).asLong());
+        this.strategy = ModelNodes.asEnum(STRATEGY.resolveModelAttribute(context, model), EvictionStrategy.class);
+        // Use MANUAL instead of NONE to silence log WARNs on cache configuration validation
+        this.builder.strategy(this.strategy.isEnabled() ? this.strategy : EvictionStrategy.MANUAL);
+        if (this.strategy.isEnabled()) {
+            this.builder.type(EvictionType.COUNT).size(MAX_ENTRIES.resolveModelAttribute(context, model).asLong());
         }
         return this;
     }

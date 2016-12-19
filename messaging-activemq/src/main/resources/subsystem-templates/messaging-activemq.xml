@@ -2,7 +2,7 @@
 <!--  See src/resources/configuration/ReadMe.txt for how the configuration assembly works -->
 <config default-supplement="default">
     <extension-module>org.wildfly.extension.messaging-activemq</extension-module>
-    <subsystem xmlns="urn:jboss:domain:messaging-activemq:1.0">
+    <subsystem xmlns="urn:jboss:domain:messaging-activemq:1.1">
         <server name="default">
             <?CLUSTERED?>
 
@@ -70,8 +70,8 @@
         </replacement>
         <replacement placeholder="REMOTE-CONNECTION-FACTORY">
             <connection-factory name="RemoteConnectionFactory"
-                                connectors="http-connector"
-                                entries="java:jboss/exported/jms/RemoteConnectionFactory" />
+                                entries="java:jboss/exported/jms/RemoteConnectionFactory"
+                                connectors="http-connector" />
         </replacement>
     </supplement>
     <supplement name="ha">

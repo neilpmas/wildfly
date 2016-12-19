@@ -34,14 +34,19 @@ import static org.wildfly.extension.messaging.activemq.CommonAttributes.CORE;
 import static org.wildfly.extension.messaging.activemq.CommonAttributes.LEGACY;
 
 import java.io.IOException;
+import java.util.Map;
 
 import io.netty.channel.socket.SocketChannel;
 import io.undertow.server.HttpServerExchange;
+import io.undertow.server.HttpUpgradeListener;
 import io.undertow.server.ListenerRegistry;
 import io.undertow.server.handlers.ChannelUpgradeHandler;
 import org.apache.activemq.artemis.core.remoting.impl.netty.NettyAcceptor;
+import org.apache.activemq.artemis.core.remoting.impl.netty.TransportConstants;
 import org.apache.activemq.artemis.core.remoting.server.RemotingService;
 import org.apache.activemq.artemis.core.server.ActiveMQServer;
+import org.apache.activemq.artemis.core.server.cluster.ClusterManager;
+import org.apache.activemq.artemis.core.server.cluster.ha.HAManager;
 import org.jboss.as.remoting.HttpListenerRegistryService;
 import org.jboss.as.remoting.SimpleHttpUpgradeHandshake;
 import org.jboss.msc.service.Service;
@@ -54,6 +59,7 @@ import org.jboss.msc.service.StopContext;
 import org.jboss.msc.value.InjectedValue;
 import org.wildfly.extension.messaging.activemq.logging.MessagingLogger;
 import org.xnio.ChannelListener;
+import org.xnio.ChannelListeners;
 import org.xnio.IoUtils;
 import org.xnio.StreamConnection;
 import org.xnio.netty.transport.WrappingXnioSocketChannel;
@@ -74,6 +80,11 @@ public class HTTPUpgradeService implements Service<HTTPUpgradeService> {
     protected InjectedValue<ChannelUpgradeHandler> injectedRegistry = new InjectedValue<>();
     protected InjectedValue<ListenerRegistry> listenerRegistry = new InjectedValue<>();
 
+    // Keep a reference to the HttpUpgradeListener that is created when the service is started.
+    // There are many HttpUpgradeListener fro the artemis-remoting protocol (one per http-acceptor, for each
+    // activemq server) and only this httpUpgradeListener must be removed from the ChannelUpgradeHandler registry
+    // when this service is stopped.
+    private HttpUpgradeListener httpUpgradeListener;
     private ListenerRegistry.HttpUpgradeMetadata httpUpgradeMetadata;
 
     public HTTPUpgradeService(String activeMQServerName, String acceptorName, String httpListenerName) {
@@ -105,8 +116,9 @@ public class HTTPUpgradeService implements Service<HTTPUpgradeService> {
         ServiceController<?> activeMQService = context.getController().getServiceContainer().getService(MessagingServices.getActiveMQServiceName(activeMQServerName));
         ActiveMQServer activeMQServer = ActiveMQServer.class.cast(activeMQService.getValue());
 
+        httpUpgradeListener = switchToMessagingProtocol(activeMQServer, acceptorName, getProtocol());
         injectedRegistry.getValue().addProtocol(getProtocol(),
-                switchToMessagingProtocol(activeMQServer, acceptorName, getProtocol()),
+                httpUpgradeListener,
                 new SimpleHttpUpgradeHandshake(MAGIC_NUMBER, getSecKeyHeader(), getSecAcceptHeader()) {
                     /**
                      * override the default upgrade handshake to take into account the {@code TransportConstants.HTTP_UPGRADE_ENDPOINT_PROP_NAME} header
@@ -118,10 +130,11 @@ public class HTTPUpgradeService implements Service<HTTPUpgradeService> {
                     public boolean handleUpgrade(HttpServerExchange exchange) throws IOException {
 
                         if (super.handleUpgrade(exchange)) {
+                            ActiveMQServer server = selectServer(exchange, activeMQServer);
                             // If ActiveMQ remoting service is stopped (eg during shutdown), refuse
                             // the handshake so that the ActiveMQ client will detect the connection has failed
-                            RemotingService remotingService = activeMQServer.getRemotingService();
-                            if (!remotingService.isStarted() || remotingService.isPaused()) {
+                            RemotingService remotingService = server.getRemotingService();
+                            if (!server.isActive() || !remotingService.isStarted()) {
                                 return false;
                             }
                             final String endpoint = exchange.getRequestHeaders().getFirst(getHttpUpgradeEndpointKey());
@@ -137,11 +150,32 @@ public class HTTPUpgradeService implements Service<HTTPUpgradeService> {
                 });
     }
 
+    private static ActiveMQServer selectServer(HttpServerExchange exchange, ActiveMQServer rootServer) {
+        String activemqServerName = exchange.getRequestHeaders().getFirst(TransportConstants.ACTIVEMQ_SERVER_NAME);
+        if (activemqServerName == null || activemqServerName.equals(rootServer.getConfiguration().getName())) {
+            return rootServer;
+        }
+        ClusterManager clusterManager = rootServer.getClusterManager();
+        if (clusterManager != null) {
+            HAManager haManager = clusterManager.getHAManager();
+            if (haManager != null) {
+                for (Map.Entry<String, ActiveMQServer> entry : haManager.getBackupServers().entrySet()) {
+                    if (entry.getKey().equals(activemqServerName)) {
+                        return entry.getValue();
+                    }
+                }
+            }
+        }
+
+        return rootServer;
+    }
+
     @Override
     public void stop(StopContext context) {
         listenerRegistry.getValue().getListener(httpListenerName).removeHttpUpgradeMetadata(httpUpgradeMetadata);
         httpUpgradeMetadata = null;
-        injectedRegistry.getValue().removeProtocol(getProtocol());
+        injectedRegistry.getValue().removeProtocol(getProtocol(), httpUpgradeListener);
+        httpUpgradeListener = null;
     }
 
     @Override
@@ -149,25 +183,32 @@ public class HTTPUpgradeService implements Service<HTTPUpgradeService> {
         return this;
     }
 
-    private static ChannelListener<StreamConnection> switchToMessagingProtocol(final ActiveMQServer activemqServer, final String acceptorName, final String protocolName) {
-        return new ChannelListener<StreamConnection>() {
+    private static HttpUpgradeListener switchToMessagingProtocol(final ActiveMQServer activemqServer, final String acceptorName, final String protocolName) {
+        return new HttpUpgradeListener() {
             @Override
-            public void handleEvent(final StreamConnection connection) {
-                MessagingLogger.ROOT_LOGGER.debugf("Switching to %s protocol for %s http-acceptor", protocolName, acceptorName);
-                RemotingService remotingService = activemqServer.getRemotingService();
-                if (!remotingService.isStarted() || remotingService.isPaused()) {
-                    // ActiveMQ no longer accepts connection
-                    IoUtils.safeClose(connection);
-                    return;
-                }
-                NettyAcceptor acceptor = (NettyAcceptor) remotingService.getAcceptor(acceptorName);
-                SocketChannel channel = new WrappingXnioSocketChannel(connection);
-                try {
-                    acceptor.transfer(channel);
-                    connection.getSourceChannel().resumeReads();
-                } catch (IllegalStateException e) {
-                    IoUtils.safeClose(connection);
-                }
+            public void handleUpgrade(StreamConnection streamConnection, HttpServerExchange exchange) {
+                ChannelListener<StreamConnection> listener = new ChannelListener<StreamConnection>() {
+                    @Override
+                    public void handleEvent(StreamConnection connection) {
+                        MessagingLogger.ROOT_LOGGER.debugf("Switching to %s protocol for %s http-acceptor", protocolName, acceptorName);
+                        ActiveMQServer server = selectServer(exchange, activemqServer);
+                        RemotingService remotingService = server.getRemotingService();
+                        if (!server.isActive() || !remotingService.isStarted()) {
+                            // ActiveMQ does not accept connection
+                            IoUtils.safeClose(connection);
+                            return;
+                        }
+                        NettyAcceptor acceptor = (NettyAcceptor) remotingService.getAcceptor(acceptorName);
+                        SocketChannel channel = new WrappingXnioSocketChannel(connection);
+                        try {
+                            acceptor.transfer(channel);
+                            connection.getSourceChannel().resumeReads();
+                        } catch (IllegalStateException e) {
+                            IoUtils.safeClose(connection);
+                        }
+                    }
+                };
+                ChannelListeners.invokeChannelListener(streamConnection, listener);
             }
         };
     }

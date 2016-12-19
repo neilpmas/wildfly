@@ -21,22 +21,27 @@
  */
 package org.jboss.as.clustering.infinispan.subsystem;
 
+import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.Map;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.AttributeParsers;
+import org.jboss.as.clustering.controller.CapabilityProvider;
+import org.jboss.as.clustering.controller.CapabilityReference;
 import org.jboss.as.clustering.controller.ChildResourceDefinition;
 import org.jboss.as.clustering.controller.MetricHandler;
 import org.jboss.as.clustering.controller.Operations;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
+import org.jboss.as.clustering.controller.UnaryRequirementCapability;
 import org.jboss.as.clustering.controller.transform.OperationTransformer;
 import org.jboss.as.clustering.controller.transform.SimpleOperationTransformer;
 import org.jboss.as.clustering.controller.validation.EnumValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.ModuleIdentifierValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.ParameterValidatorBuilder;
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.CapabilityReferenceRecorder;
 import org.jboss.as.controller.ModelVersion;
 import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationDefinition;
@@ -58,6 +63,10 @@ import org.jboss.as.controller.transform.description.RejectAttributeChecker;
 import org.jboss.as.controller.transform.description.ResourceTransformationDescriptionBuilder;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
+import org.wildfly.clustering.infinispan.spi.InfinispanCacheRequirement;
+import org.wildfly.clustering.infinispan.spi.InfinispanRequirement;
+import org.wildfly.clustering.service.UnaryRequirement;
+import org.wildfly.clustering.spi.ClusteringCacheRequirement;
 
 /**
  * Resource description for the addressable resource /subsystem=infinispan/cache-container=X
@@ -71,6 +80,33 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
 
     static PathElement pathElement(String containerName) {
         return PathElement.pathElement("cache-container", containerName);
+    }
+
+    enum Capability implements CapabilityProvider {
+        CONTAINER(InfinispanRequirement.CONTAINER),
+        CONFIGURATION(InfinispanRequirement.CONFIGURATION),
+        KEY_AFFINITY_FACTORY(InfinispanRequirement.KEY_AFFINITY_FACTORY),
+        ;
+        private final org.jboss.as.clustering.controller.Capability capability;
+
+        Capability(UnaryRequirement requirement) {
+            this.capability = new UnaryRequirementCapability(requirement);
+        }
+
+        @Override
+        public org.jboss.as.clustering.controller.Capability getCapability() {
+            return this.capability;
+        }
+    }
+
+    static final Map<InfinispanCacheRequirement, org.jboss.as.clustering.controller.Capability> DEFAULT_CAPABILITIES = new EnumMap<>(InfinispanCacheRequirement.class);
+    static {
+        EnumSet.allOf(InfinispanCacheRequirement.class).forEach(requirement -> DEFAULT_CAPABILITIES.put(requirement, new UnaryRequirementCapability(requirement.getDefaultRequirement())));
+    }
+
+    static final Map<ClusteringCacheRequirement, org.jboss.as.clustering.controller.Capability> DEFAULT_CLUSTERING_CAPABILITIES = new EnumMap<>(ClusteringCacheRequirement.class);
+    static {
+        EnumSet.allOf(ClusteringCacheRequirement.class).forEach(requirement -> DEFAULT_CLUSTERING_CAPABILITIES.put(requirement, new UnaryRequirementCapability(requirement.getDefaultRequirement())));
     }
 
     @Deprecated
@@ -92,12 +128,20 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
 
     enum Attribute implements org.jboss.as.clustering.controller.Attribute {
         ALIASES("aliases"),
-        DEFAULT_CACHE("default-cache", ModelType.STRING, null),
+        DEFAULT_CACHE("default-cache", ModelType.STRING, new CapabilityReference(DEFAULT_CAPABILITIES.get(InfinispanCacheRequirement.CONFIGURATION), InfinispanCacheRequirement.CONFIGURATION)),
         MODULE("module", ModelType.STRING, new ModelNode("org.jboss.as.clustering.infinispan"), new ModuleIdentifierValidatorBuilder()),
-        JNDI_NAME("jndi-name", ModelType.STRING, null),
+        JNDI_NAME("jndi-name", ModelType.STRING),
         STATISTICS_ENABLED("statistics-enabled", ModelType.BOOLEAN, new ModelNode(false)),
         ;
         private final AttributeDefinition definition;
+
+        Attribute(String name, ModelType type) {
+            this.definition = createBuilder(name, type, null).build();
+        }
+
+        Attribute(String name, ModelType type, CapabilityReferenceRecorder reference) {
+            this.definition = createBuilder(name, type, null).setAllowExpression(false).setCapabilityReference(reference).build();
+        }
 
         Attribute(String name, ModelType type, ModelNode defaultValue) {
             this.definition = createBuilder(name, type, defaultValue).build();
@@ -110,7 +154,7 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
 
         Attribute(String name) {
             this.definition = new StringListAttributeDefinition.Builder(name)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setAttributeParser(AttributeParsers.COLLECTION)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
@@ -160,7 +204,7 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
     static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue) {
         return new SimpleAttributeDefinitionBuilder(name, type)
                 .setAllowExpression(true)
-                .setAllowNull(true)
+                .setRequired(false)
                 .setDefaultValue(defaultValue)
                 .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                 ;
@@ -186,7 +230,7 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
                 @Override
                 public ModelNode transformOperation(ModelNode operation) {
                     String attributeName = Operations.getAttributeName(operation);
-                    if (Attribute.ALIASES.getDefinition().getName().equals(attributeName)) {
+                    if (Attribute.ALIASES.getName().equals(attributeName)) {
                         ModelNode value = Operations.getAttributeValue(operation);
                         PathAddress address = Operations.getPathAddress(operation);
                         ModelNode transformedOperation = Util.createOperation(ALIAS_ADD, address);
@@ -202,7 +246,7 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
                 @Override
                 public ModelNode transformOperation(ModelNode operation) {
                     String attributeName = Operations.getAttributeName(operation);
-                    if (Attribute.ALIASES.getDefinition().getName().equals(attributeName)) {
+                    if (Attribute.ALIASES.getName().equals(attributeName)) {
                         ModelNode value = Operations.getAttributeValue(operation);
                         PathAddress address = Operations.getPathAddress(operation);
                         ModelNode transformedOperation = Util.createOperation(ALIAS_REMOVE, address);
@@ -249,13 +293,15 @@ public class CacheContainerResourceDefinition extends ChildResourceDefinition {
                 .addAttributes(Attribute.class)
                 .addAttributes(ExecutorAttribute.class)
                 .addAttributes(DeprecatedAttribute.class)
+                .addCapabilities(Capability.class)
+                .addCapabilities(model -> model.hasDefined(Attribute.DEFAULT_CACHE.getName()), DEFAULT_CAPABILITIES.values())
+                .addCapabilities(model -> model.hasDefined(Attribute.DEFAULT_CACHE.getName()), DEFAULT_CLUSTERING_CAPABILITIES.values())
                 .addRequiredChildren(ThreadPoolResourceDefinition.class)
                 .addRequiredChildren(ScheduledThreadPoolResourceDefinition.class)
                 .addRequiredSingletonChildren(NoTransportResourceDefinition.PATH)
                 ;
         ResourceServiceHandler handler = new CacheContainerServiceHandler();
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         // Translate legacy add-alias operation to list-add operation
         OperationStepHandler addAliasHandler = new OperationStepHandler() {

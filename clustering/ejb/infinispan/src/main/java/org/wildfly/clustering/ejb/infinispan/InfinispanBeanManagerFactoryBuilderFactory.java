@@ -29,6 +29,9 @@ import java.util.List;
 import java.util.concurrent.ThreadFactory;
 
 import org.infinispan.Cache;
+import org.jboss.as.clustering.controller.BuilderAdapter;
+import org.jboss.as.clustering.controller.CapabilityServiceBuilder;
+import org.jboss.as.controller.capability.CapabilityServiceSupport;
 import org.jboss.as.server.deployment.Services;
 import org.jboss.msc.service.ServiceBuilder;
 import org.jboss.msc.service.ServiceName;
@@ -39,10 +42,10 @@ import org.wildfly.clustering.ejb.BeanContext;
 import org.wildfly.clustering.ejb.BeanManagerFactory;
 import org.wildfly.clustering.ejb.BeanManagerFactoryBuilderConfiguration;
 import org.wildfly.clustering.ejb.BeanManagerFactoryBuilderFactory;
+import org.wildfly.clustering.infinispan.spi.InfinispanCacheRequirement;
 import org.wildfly.clustering.infinispan.spi.service.CacheBuilder;
 import org.wildfly.clustering.infinispan.spi.service.TemplateConfigurationBuilder;
 import org.wildfly.clustering.service.Builder;
-import org.wildfly.clustering.service.SubGroupServiceNameFactory;
 import org.wildfly.clustering.service.concurrent.CachedThreadPoolExecutorServiceBuilder;
 import org.wildfly.clustering.service.concurrent.RemoveOnCancelScheduledExecutorServiceBuilder;
 
@@ -75,38 +78,37 @@ public class InfinispanBeanManagerFactoryBuilderFactory<I> implements BeanManage
         return deploymentUnitServiceName.getSimpleName();
     }
 
+    private final CapabilityServiceSupport support;
     private final String name;
     private final BeanManagerFactoryBuilderConfiguration config;
 
-    public InfinispanBeanManagerFactoryBuilderFactory(String name, BeanManagerFactoryBuilderConfiguration config) {
+    public InfinispanBeanManagerFactoryBuilderFactory(CapabilityServiceSupport support, String name, BeanManagerFactoryBuilderConfiguration config) {
+        this.support = support;
         this.name = name;
         this.config = config;
     }
 
     @Override
-    public Collection<Builder<?>> getDeploymentBuilders(final ServiceName name) {
+    public Collection<CapabilityServiceBuilder<?>> getDeploymentBuilders(final ServiceName name) {
         String cacheName = getCacheName(name);
         String containerName = this.config.getContainerName();
         String templateCacheName = this.config.getCacheName();
-        if (templateCacheName == null) {
-            templateCacheName = SubGroupServiceNameFactory.DEFAULT_SUB_GROUP;
-        }
 
-        List<Builder<?>> builders = new ArrayList<>(4);
-        builders.add(new TemplateConfigurationBuilder(containerName, cacheName, templateCacheName));
-        builders.add(new CacheBuilder<Object, Object>(containerName, cacheName) {
+        List<CapabilityServiceBuilder<?>> builders = new ArrayList<>(4);
+        builders.add(new TemplateConfigurationBuilder(ServiceName.parse(InfinispanCacheRequirement.CONFIGURATION.resolve(containerName, cacheName)), containerName, cacheName, templateCacheName));
+        builders.add(new CacheBuilder<Object, Object>(ServiceName.parse(InfinispanCacheRequirement.CACHE.resolve(containerName, cacheName)), containerName, cacheName) {
             @Override
             public ServiceBuilder<Cache<Object, Object>> build(ServiceTarget target) {
                 return super.build(target).addDependency(name.append("marshalling"));
             }
         });
-        builders.add(new RemoveOnCancelScheduledExecutorServiceBuilder(name.append(this.name, "expiration"), EXPIRATION_THREAD_FACTORY));
-        builders.add(new CachedThreadPoolExecutorServiceBuilder(name.append(this.name, "eviction"), EVICTION_THREAD_FACTORY));
+        builders.add(new BuilderAdapter<>(new RemoveOnCancelScheduledExecutorServiceBuilder(name.append(this.name, "expiration"), EXPIRATION_THREAD_FACTORY)));
+        builders.add(new BuilderAdapter<>(new CachedThreadPoolExecutorServiceBuilder(name.append(this.name, "eviction"), EVICTION_THREAD_FACTORY)));
         return builders;
     }
 
     @Override
     public <T> Builder<? extends BeanManagerFactory<I, T, TransactionBatch>> getBeanManagerFactoryBuilder(BeanContext context) {
-        return new InfinispanBeanManagerFactoryBuilder<>(this.name, context, this.config);
+        return new InfinispanBeanManagerFactoryBuilder<>(this.support, this.name, context, this.config);
     }
 }

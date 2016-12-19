@@ -26,12 +26,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamWriter;
 
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.AttributeMarshaller;
 import org.jboss.as.controller.AttributeParser;
-import org.jboss.as.controller.DefaultAttributeMarshaller;
 import org.jboss.as.controller.PersistentResourceDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinitionBuilder;
@@ -53,36 +51,22 @@ class HostDefinition extends PersistentResourceDefinition {
             .setElementValidator(new StringLengthValidator(1))
             .setAllowExpression(true)
             .setAttributeParser(AttributeParser.COMMA_DELIMITED_STRING_LIST)
-            .setAttributeMarshaller(new DefaultAttributeMarshaller() {
-                @Override
-                public void marshallAsAttribute(AttributeDefinition attribute, ModelNode resourceModel, boolean marshallDefault, XMLStreamWriter writer) throws XMLStreamException {
-
-                    StringBuilder builder = new StringBuilder();
-                    if (resourceModel.hasDefined(attribute.getName())) {
-                        for (ModelNode p : resourceModel.get(attribute.getName()).asList()) {
-                            builder.append(p.asString()).append(", ");
-                        }
-                    }
-                    if (builder.length() > 0) {
-                        writer.writeAttribute(attribute.getXmlName(), builder.substring(0, builder.length() - 2));
-                    }
-                }
-            })
+            .setAttributeMarshaller(AttributeMarshaller.COMMA_STRING_LIST)
             .build();
     static final SimpleAttributeDefinition DEFAULT_WEB_MODULE = new SimpleAttributeDefinitionBuilder(Constants.DEFAULT_WEB_MODULE, ModelType.STRING, true)
-            .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+            .setRestartAllServices()
             .setValidator(new StringLengthValidator(1, true, false))
             .setDefaultValue(new ModelNode("ROOT.war"))
             .build();
 
     static final SimpleAttributeDefinition DEFAULT_RESPONSE_CODE = new SimpleAttributeDefinitionBuilder(Constants.DEFAULT_RESPONSE_CODE, ModelType.INT, true)
-            .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+            .setRestartAllServices()
             .setValidator(new IntRangeValidator(400, 599, true, true))
             .setDefaultValue(new ModelNode(404))
             .setAllowExpression(true)
             .build();
     static final SimpleAttributeDefinition DISABLE_CONSOLE_REDIRECT = new SimpleAttributeDefinitionBuilder("disable-console-redirect", ModelType.BOOLEAN, true)
-            .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+            .setRestartAllServices()
             .setDefaultValue(new ModelNode(false))
             .setAllowExpression(true)
             .build();

@@ -30,7 +30,9 @@ import static org.jboss.as.controller.client.helpers.MeasurementUnit.PERCENTAGE;
 import static org.jboss.dmr.ModelType.BOOLEAN;
 import static org.jboss.dmr.ModelType.INT;
 import static org.jboss.dmr.ModelType.LONG;
+import static org.jboss.dmr.ModelType.STRING;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -39,6 +41,7 @@ import org.apache.activemq.artemis.api.config.ActiveMQDefaultConfiguration;
 import org.apache.activemq.artemis.core.config.impl.ConfigurationImpl;
 import org.apache.activemq.artemis.core.server.JournalType;
 import org.jboss.as.controller.AttributeDefinition;
+import org.jboss.as.controller.ObjectTypeAttributeDefinition;
 import org.jboss.as.controller.PersistentResourceDefinition;
 import org.jboss.as.controller.SimpleAttributeDefinition;
 import org.jboss.as.controller.access.management.SensitiveTargetAccessConstraintDefinition;
@@ -101,8 +104,19 @@ public class ServerDefinition extends PersistentResourceDefinition {
             .setAttributeGroup("security")
             .setXmlName("domain")
             .setDefaultValue(new ModelNode("other"))
-            .setAllowNull(true)
+            .setAlternatives("elytron-domain")
+            .setRequired(false)
             .setAllowExpression(false) // references the security domain service name
+            .setRestartAllServices()
+            .addAccessConstraint(SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN_REF)
+            .addAccessConstraint(MessagingExtension.MESSAGING_SECURITY_SENSITIVE_TARGET)
+            .setDeprecated(MessagingExtension.VERSION_1_1_0)
+            .build();
+    public static final SimpleAttributeDefinition ELYTRON_DOMAIN = create("elytron-domain", ModelType.STRING)
+            .setAttributeGroup("security")
+            .setRequired(false)
+            .setAlternatives(SECURITY_DOMAIN.getName())
+            .setAllowExpression(false)
             .setRestartAllServices()
             .addAccessConstraint(SensitiveTargetAccessConstraintDefinition.SECURITY_DOMAIN_REF)
             .addAccessConstraint(MessagingExtension.MESSAGING_SECURITY_SENSITIVE_TARGET)
@@ -165,15 +179,69 @@ public class ServerDefinition extends PersistentResourceDefinition {
             .setXmlName("compact-percentage")
             .setDefaultValue(new ModelNode(ActiveMQDefaultConfiguration.getDefaultJournalCompactPercentage()))
             .setMeasurementUnit(PERCENTAGE)
+            .setValidator(new IntRangeValidator(0, 100, true, true))
             .setAllowNull(true)
             .setAllowExpression(true)
             .setRestartAllServices()
             .build();
+    // TODO: if this attribute is set, warn/error if any fs-related journal attribute is set.
+    // TODO: add capability for data-source https://github.com/wildfly/wildfly-capabilities/blob/master/org/wildfly/data-source/capability.adoc
+    public static final SimpleAttributeDefinition JOURNAL_DATASOURCE = create("journal-datasource", STRING)
+            .setAttributeGroup("journal")
+            .setXmlName("datasource")
+            .setAllowNull(true)
+            // references another resource
+            .setAllowExpression(false)
+            .setRestartAllServices()
+            .build();
+
+    public static final SimpleAttributeDefinition JOURNAL_BINDINGS_TABLE  = create("journal-bindings-table", STRING)
+            .setAttributeGroup("journal")
+            .setXmlName("bindings-table")
+            .setAllowNull(true)
+            .setDefaultValue(new ModelNode(ActiveMQDefaultConfiguration.getDefaultBindingsTableName()))
+            .setAllowExpression(true)
+            .setRestartAllServices()
+            .build();
+
+    public static final SimpleAttributeDefinition JOURNAL_LARGE_MESSAGES_TABLE  = create("journal-large-messages-table", STRING)
+            .setAttributeGroup("journal")
+            .setXmlName("large-messages-table")
+            .setAllowNull(true)
+            .setDefaultValue(new ModelNode(ActiveMQDefaultConfiguration.getDefaultLargeMessagesTableName()))
+            .setAllowExpression(true)
+            .setRestartAllServices()
+            .build();
+
+    public static final SimpleAttributeDefinition JOURNAL_MESSAGES_TABLE = create("journal-messages-table", STRING)
+            .setAttributeGroup("journal")
+            .setXmlName("messages-table")
+            .setAllowNull(true)
+            .setDefaultValue(new ModelNode(ActiveMQDefaultConfiguration.getDefaultMessageTableName()))
+            .setAllowExpression(true)
+            .setRestartAllServices()
+            .build();
+
+    public static final AttributeDefinition JOURNAL_SQL_PROVIDER_FACTORY = ObjectTypeAttributeDefinition.Builder.of("journal-sql-provider-factory-class",
+            create(CommonAttributes.NAME, ModelType.STRING, false)
+                    .setAllowExpression(false)
+                    .build(),
+            create(CommonAttributes.MODULE, ModelType.STRING, false)
+                    .setAllowExpression(false)
+                    .build())
+            .setAttributeGroup("journal")
+            .setXmlName("sql-provider-factory-class")
+            .setAllowExpression(false)
+            .setAllowNull(true)
+            .setRestartAllServices()
+            .build();
+
     public static final SimpleAttributeDefinition JOURNAL_FILE_SIZE = create("journal-file-size", LONG)
             .setAttributeGroup("journal")
             .setXmlName("file-size")
             .setDefaultValue(new ModelNode(ActiveMQDefaultConfiguration.getDefaultJournalFileSize()))
             .setMeasurementUnit(BYTES)
+            .setValidator(new ModularLongRangeParameterValidator(512, 1024, Long.MAX_VALUE, true, true))
             .setAllowNull(true)
             .setAllowExpression(true)
             .setRestartAllServices()
@@ -438,68 +506,29 @@ public class ServerDefinition extends PersistentResourceDefinition {
             .build();
 
     public static final AttributeDefinition[] ATTRIBUTES = {PERSISTENCE_ENABLED, SCHEDULED_THREAD_POOL_MAX_SIZE,
-            THREAD_POOL_MAX_SIZE, SECURITY_DOMAIN, SECURITY_ENABLED, SECURITY_INVALIDATION_INTERVAL, OVERRIDE_IN_VM_SECURITY, WILD_CARD_ROUTING_ENABLED,
-            MANAGEMENT_ADDRESS, MANAGEMENT_NOTIFICATION_ADDRESS, CLUSTER_USER, CLUSTER_PASSWORD, JMX_MANAGEMENT_ENABLED,
-            JMX_DOMAIN, STATISTICS_ENABLED, MESSAGE_COUNTER_SAMPLE_PERIOD, MESSAGE_COUNTER_MAX_DAY_HISTORY,
-            CONNECTION_TTL_OVERRIDE, ASYNC_CONNECTION_EXECUTION_ENABLED, TRANSACTION_TIMEOUT, TRANSACTION_TIMEOUT_SCAN_PERIOD,
-            MESSAGE_EXPIRY_SCAN_PERIOD, MESSAGE_EXPIRY_THREAD_PRIORITY, ID_CACHE_SIZE, PERSIST_ID_CACHE,
+            THREAD_POOL_MAX_SIZE, SECURITY_DOMAIN, ELYTRON_DOMAIN, SECURITY_ENABLED, SECURITY_INVALIDATION_INTERVAL,
+            OVERRIDE_IN_VM_SECURITY, WILD_CARD_ROUTING_ENABLED, MANAGEMENT_ADDRESS, MANAGEMENT_NOTIFICATION_ADDRESS,
+            CLUSTER_USER, CLUSTER_PASSWORD, JMX_MANAGEMENT_ENABLED, JMX_DOMAIN, STATISTICS_ENABLED, MESSAGE_COUNTER_SAMPLE_PERIOD,
+            MESSAGE_COUNTER_MAX_DAY_HISTORY, CONNECTION_TTL_OVERRIDE, ASYNC_CONNECTION_EXECUTION_ENABLED, TRANSACTION_TIMEOUT,
+            TRANSACTION_TIMEOUT_SCAN_PERIOD, MESSAGE_EXPIRY_SCAN_PERIOD, MESSAGE_EXPIRY_THREAD_PRIORITY, ID_CACHE_SIZE, PERSIST_ID_CACHE,
             CommonAttributes.INCOMING_INTERCEPTORS, CommonAttributes.OUTGOING_INTERCEPTORS,
             PERSIST_DELIVERY_COUNT_BEFORE_DELIVERY,
             PAGE_MAX_CONCURRENT_IO, CREATE_BINDINGS_DIR, CREATE_JOURNAL_DIR, JOURNAL_TYPE, JOURNAL_BUFFER_TIMEOUT,
-            JOURNAL_BUFFER_SIZE, JOURNAL_SYNC_TRANSACTIONAL, JOURNAL_SYNC_NON_TRANSACTIONAL, LOG_JOURNAL_WRITE_RATE,
+            JOURNAL_BUFFER_SIZE,
+            JOURNAL_DATASOURCE, JOURNAL_MESSAGES_TABLE, JOURNAL_BINDINGS_TABLE, JOURNAL_LARGE_MESSAGES_TABLE, JOURNAL_SQL_PROVIDER_FACTORY,
+            JOURNAL_SYNC_TRANSACTIONAL, JOURNAL_SYNC_NON_TRANSACTIONAL, LOG_JOURNAL_WRITE_RATE,
             JOURNAL_FILE_SIZE, JOURNAL_MIN_FILES, JOURNAL_POOL_FILES, JOURNAL_COMPACT_PERCENTAGE, JOURNAL_COMPACT_MIN_FILES, JOURNAL_MAX_IO,
             PERF_BLAST_PAGES, RUN_SYNC_SPEED_TEST, SERVER_DUMP_INTERVAL, MEMORY_WARNING_THRESHOLD, MEMORY_MEASURE_INTERVAL,
     };
 
     static final String JMX_CAPABILITY = "org.wildfly.management.jmx";
 
+    static final String ELYTRON_DOMAIN_CAPABILITY = "org.wildfly.security.security-domain";
+
     static final RuntimeCapability<Void> ACTIVEMQ_SERVER_CAPABILITY = RuntimeCapability.Builder.of("org.wildfly.messaging.activemq.server", true)
             .addOptionalRequirements(JMX_CAPABILITY)
             .build();
 
-    private static PersistentResourceDefinition[] CHILDREN = {
-            // HA policy
-            LiveOnlyDefinition.INSTANCE,
-            ReplicationMasterDefinition.INSTANCE,
-            ReplicationSlaveDefinition.INSTANCE,
-            ReplicationColocatedDefinition.INSTANCE,
-            SharedStoreMasterDefinition.INSTANCE,
-            SharedStoreSlaveDefinition.INSTANCE,
-            SharedStoreColocatedDefinition.INSTANCE,
-
-            AddressSettingDefinition.INSTANCE,
-            SecuritySettingDefinition.INSTANCE,
-
-            // Connectors
-            HTTPConnectorDefinition.INSTANCE,
-            RemoteTransportDefinition.CONNECTOR_INSTANCE,
-            InVMTransportDefinition.CONNECTOR_INSTANCE,
-            GenericTransportDefinition.CONNECTOR_INSTANCE,
-
-            // Acceptors
-            HTTPAcceptorDefinition.INSTANCE,
-            RemoteTransportDefinition.ACCEPTOR_INSTANCE,
-            InVMTransportDefinition.ACCEPTOR_INSTANCE,
-            GenericTransportDefinition.ACCEPTOR_INSTANCE,
-
-            QueueDefinition.INSTANCE,
-            BroadcastGroupDefinition.INSTANCE,
-            DiscoveryGroupDefinition.INSTANCE,
-            BridgeDefinition.INSTANCE,
-            ClusterConnectionDefinition.INSTANCE,
-            DivertDefinition.INSTANCE,
-            ConnectorServiceDefinition.INSTANCE,
-            GroupingHandlerDefinition.INSTANCE,
-
-            // JMS resources
-            JMSQueueDefinition.INSTANCE,
-            JMSTopicDefinition.INSTANCE,
-            ConnectionFactoryDefinition.INSTANCE,
-            LegacyConnectionFactoryDefinition.INSTANCE,
-            PooledConnectionFactoryDefinition.INSTANCE
-    };
-
-    protected static final PersistentResourceDefinition INSTANCE = new ServerDefinition(false);
     private final boolean registerRuntimeOnly;
 
     ServerDefinition(boolean registerRuntimeOnly) {
@@ -514,10 +543,10 @@ public class ServerDefinition extends PersistentResourceDefinition {
     public void registerOperations(ManagementResourceRegistration resourceRegistration) {
         super.registerOperations(resourceRegistration);
 
-        ExportJournalOperation.registerOperation(resourceRegistration, getResourceDescriptionResolver());
-        ImportJournalOperation.registerOperation(resourceRegistration, getResourceDescriptionResolver());
-
         if (registerRuntimeOnly) {
+            ExportJournalOperation.registerOperation(resourceRegistration, getResourceDescriptionResolver());
+            ImportJournalOperation.registerOperation(resourceRegistration, getResourceDescriptionResolver());
+
             ActiveMQServerControlHandler.INSTANCE.registerOperations(resourceRegistration, getResourceDescriptionResolver());
             JMSServerControlHandler.INSTANCE.registerOperations(resourceRegistration, getResourceDescriptionResolver());
 
@@ -540,18 +569,63 @@ public class ServerDefinition extends PersistentResourceDefinition {
 
     @Override
     protected List<? extends PersistentResourceDefinition> getChildren() {
-        return Arrays.asList(CHILDREN);
+        List<PersistentResourceDefinition> children = new ArrayList();
+        // Static resources
+        children.addAll(Arrays.asList(
+                // HA policy
+                LiveOnlyDefinition.INSTANCE,
+                ReplicationMasterDefinition.INSTANCE,
+                ReplicationSlaveDefinition.INSTANCE,
+                ReplicationColocatedDefinition.INSTANCE,
+                SharedStoreMasterDefinition.INSTANCE,
+                SharedStoreSlaveDefinition.INSTANCE,
+                SharedStoreColocatedDefinition.INSTANCE,
+
+                AddressSettingDefinition.INSTANCE,
+                SecuritySettingDefinition.INSTANCE,
+
+                // Connectors
+                HTTPConnectorDefinition.INSTANCE,
+                RemoteTransportDefinition.CONNECTOR_INSTANCE,
+                InVMTransportDefinition.CONNECTOR_INSTANCE,
+                GenericTransportDefinition.CONNECTOR_INSTANCE,
+
+                // Acceptors
+                HTTPAcceptorDefinition.INSTANCE,
+                RemoteTransportDefinition.ACCEPTOR_INSTANCE,
+                InVMTransportDefinition.ACCEPTOR_INSTANCE,
+                GenericTransportDefinition.ACCEPTOR_INSTANCE,
+
+                BroadcastGroupDefinition.INSTANCE,
+                DiscoveryGroupDefinition.INSTANCE,
+                BridgeDefinition.INSTANCE,
+                ClusterConnectionDefinition.INSTANCE,
+                DivertDefinition.INSTANCE,
+                ConnectorServiceDefinition.INSTANCE,
+                GroupingHandlerDefinition.INSTANCE,
+
+                // JMS resources
+                LegacyConnectionFactoryDefinition.INSTANCE,
+                PooledConnectionFactoryDefinition.INSTANCE));
+
+        // Dynamic resources (depending on registerRuntimeOnly)
+        children.add(new QueueDefinition(registerRuntimeOnly, MessagingExtension.QUEUE_PATH));
+        children.add(new JMSQueueDefinition(false, registerRuntimeOnly));
+        children.add(new JMSTopicDefinition(false, registerRuntimeOnly));
+        children.add(new ConnectionFactoryDefinition(registerRuntimeOnly));
+
+        return children;
     }
 
     @Override
     public void registerChildren(ManagementResourceRegistration resourceRegistration) {
         super.registerChildren(resourceRegistration);
 
-        // TODO WFLY-5285 get rid of redundant .setRuntimeOnly once WFCORE-959 is integrated
-        ManagementResourceRegistration runtimeQueue = resourceRegistration.registerSubModel(QueueDefinition.RUNTIME_INSTANCE);
-        runtimeQueue.setRuntimeOnly(true);
-        ManagementResourceRegistration coreAddress = resourceRegistration.registerSubModel(CoreAddressDefinition.INSTANCE);
-        coreAddress.setRuntimeOnly(true);
+        // runtime queues and core-address are only registered when it is ok to register runtime resource (ie they are not registered on HC).
+        if (registerRuntimeOnly) {
+            resourceRegistration.registerSubModel(new QueueDefinition(registerRuntimeOnly,  MessagingExtension.RUNTIME_QUEUE_PATH));
+            resourceRegistration.registerSubModel(CoreAddressDefinition.INSTANCE);
+        }
     }
 
 

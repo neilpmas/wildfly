@@ -1,3 +1,25 @@
+/*
+ * JBoss, Home of Professional Open Source.
+ * Copyright 2012, Red Hat, Inc., and individual contributors
+ * as indicated by the @author tags. See the copyright.txt file in the
+ * distribution for a full listing of individual contributors.
+ *
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Lesser General Public License as
+ * published by the Free Software Foundation; either version 2.1 of
+ * the License, or (at your option) any later version.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free
+ * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
+ */
+
 package org.jboss.as.test.clustering.extended.ejb2.stateful.remote.failover;
 
 import javax.naming.NamingException;
@@ -95,7 +117,7 @@ public abstract class RemoteEJBClientStatefulFailoverTestBase extends ClusterAbs
             final int NUM_TIMES = 25;
             for (int i = 0; i < NUM_TIMES; i++) {
                 final CounterResult result = remoteCounter.increment();
-                log.info("Counter incremented to " + result.getCount() + " on node " + result.getNodeName());
+                log.trace("Counter incremented to " + result.getCount() + " on node " + result.getNodeName());
             }
             final CounterResult result = remoteCounter.getCount();
             Assert.assertNotNull("Result from remote stateful counter was null", result);
@@ -134,7 +156,7 @@ public abstract class RemoteEJBClientStatefulFailoverTestBase extends ClusterAbs
                 resultAfterShuttingDownANode = remoteCounter.decrement();
                 Assert.assertNotNull("Result from remote stateful counter, after shutting down a node was null", resultAfterShuttingDownANode);
                 Assert.assertEquals("Result was received from an unexpected node, after shutting down a node", aliveNode, resultAfterShuttingDownANode.getNodeName());
-                log.info("Counter decremented to " + resultAfterShuttingDownANode.getCount() + " on node " + resultAfterShuttingDownANode.getNodeName());
+                log.trace("Counter decremented to " + resultAfterShuttingDownANode.getCount() + " on node " + resultAfterShuttingDownANode.getNodeName());
             }
             final CounterResult finalResult = remoteCounter.getCount();
             Assert.assertNotNull("Result from remote stateful counter, after shutting down a node was null", finalResult);

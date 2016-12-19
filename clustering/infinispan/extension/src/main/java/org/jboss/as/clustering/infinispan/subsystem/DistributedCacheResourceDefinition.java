@@ -22,13 +22,13 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.validation.DoubleRangeValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.EnumValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.IntRangeValidatorBuilder;
+import org.jboss.as.clustering.controller.validation.LongRangeValidatorBuilder;
 import org.jboss.as.clustering.controller.validation.ParameterValidatorBuilder;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.ModelVersion;
@@ -61,15 +61,11 @@ public class DistributedCacheResourceDefinition extends SharedStateCacheResource
     enum Attribute implements org.jboss.as.clustering.controller.Attribute {
         CAPACITY_FACTOR("capacity-factor", ModelType.DOUBLE, new ModelNode(1.0f), new DoubleRangeValidatorBuilder().lowerBound(0).upperBound(Float.MAX_VALUE)),
         CONSISTENT_HASH_STRATEGY("consistent-hash-strategy", ModelType.STRING, new ModelNode(ConsistentHashStrategy.INTER_CACHE.name()), new EnumValidatorBuilder<>(ConsistentHashStrategy.class)),
-        L1_LIFESPAN("l1-lifespan", ModelType.LONG, new ModelNode(600000L), new DoubleRangeValidatorBuilder().lowerBound(0)),
+        L1_LIFESPAN("l1-lifespan", ModelType.LONG, new ModelNode(600000L), new LongRangeValidatorBuilder().min(0)),
         OWNERS("owners", ModelType.INT, new ModelNode(2), new IntRangeValidatorBuilder().min(1)),
         SEGMENTS("segments", ModelType.INT, new ModelNode(256), new IntRangeValidatorBuilder().min(1)),
         ;
         private final AttributeDefinition definition;
-
-        Attribute(String name, ModelType type, ModelNode defaultValue) {
-            this.definition = createBuilder(name, type, defaultValue).build();
-        }
 
         Attribute(String name, ModelType type, ModelNode defaultValue, ParameterValidatorBuilder validator) {
             SimpleAttributeDefinitionBuilder builder = createBuilder(name, type, defaultValue);
@@ -79,7 +75,7 @@ public class DistributedCacheResourceDefinition extends SharedStateCacheResource
         private static SimpleAttributeDefinitionBuilder createBuilder(String name, ModelType type, ModelNode defaultValue) {
             return new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDefaultValue(defaultValue)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .setMeasurementUnit((type == ModelType.LONG) ? MeasurementUnit.MILLISECONDS : null)
@@ -129,13 +125,14 @@ public class DistributedCacheResourceDefinition extends SharedStateCacheResource
                 .addAttributes(ClusteredCacheResourceDefinition.DeprecatedAttribute.class)
                 .addAttributes(CacheResourceDefinition.Attribute.class)
                 .addAttributes(CacheResourceDefinition.DeprecatedAttribute.class)
+                .addCapabilities(CacheResourceDefinition.Capability.class)
+                .addCapabilities(CacheResourceDefinition.CLUSTERING_CAPABILITIES.values())
                 .addRequiredChildren(EvictionResourceDefinition.PATH, ExpirationResourceDefinition.PATH, LockingResourceDefinition.PATH, TransactionResourceDefinition.PATH)
                 .addRequiredChildren(PartitionHandlingResourceDefinition.PATH, StateTransferResourceDefinition.PATH, BackupForResourceDefinition.PATH, BackupsResourceDefinition.PATH)
                 .addRequiredSingletonChildren(NoStoreResourceDefinition.PATH)
                 ;
         ResourceServiceHandler handler = new DistributedCacheServiceHandler();
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         super.register(registration);
     }

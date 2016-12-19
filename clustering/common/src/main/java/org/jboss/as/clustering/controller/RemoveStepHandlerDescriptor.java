@@ -21,24 +21,17 @@
  */
 package org.jboss.as.clustering.controller;
 
-import java.util.Collection;
-
 import org.jboss.as.controller.descriptions.ResourceDescriptionResolver;
 
 /**
  * Describes the common properties of a remove operation handler.
  * @author Paul Ferraro
  */
-public interface RemoveStepHandlerDescriptor {
+@FunctionalInterface
+public interface RemoveStepHandlerDescriptor extends OperationStepHandlerDescriptor {
     /**
      * The description resolver for the operation.
      * @return a description resolver
      */
     ResourceDescriptionResolver getDescriptionResolver();
-
-    /**
-     * The capabilities provided by this resource.
-     * @return a collection of capabilities
-     */
-    Collection<Capability> getCapabilities();
 }

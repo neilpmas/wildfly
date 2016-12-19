@@ -23,10 +23,9 @@
 package org.jboss.as.clustering.infinispan.subsystem;
 
 import org.infinispan.configuration.cache.SitesConfiguration;
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.ParentResourceServiceHandler;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceBuilderFactory;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.controller.ModelVersion;
@@ -59,7 +58,7 @@ public class BackupsResourceDefinition extends ComponentResourceDefinition {
         BackupResourceDefinition.buildTransformation(version, builder);
     }
 
-    private final ResourceServiceBuilderFactory<SitesConfiguration> builderFactory = new BackupsBuilderFactory();
+    private final ResourceServiceBuilderFactory<SitesConfiguration> builderFactory = address -> new BackupsBuilder(address.getParent());
     private final boolean runtimeRegistration;
 
     public BackupsResourceDefinition(boolean runtimeRegistration) {
@@ -73,8 +72,7 @@ public class BackupsResourceDefinition extends ComponentResourceDefinition {
 
         ResourceDescriptor descriptor = new ResourceDescriptor(this.getResourceDescriptionResolver());
         ResourceServiceHandler handler = new ParentResourceServiceHandler<>(this.builderFactory);
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         new BackupResourceDefinition(this.builderFactory, this.runtimeRegistration).register(registration);
     }

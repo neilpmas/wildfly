@@ -23,9 +23,9 @@
 package org.jboss.as.ejb3.remote.protocol.versionone;
 
 import org.jboss.as.ee.component.Component;
+import org.jboss.as.ee.component.ComponentIsStoppedException;
 import org.jboss.as.ee.component.ComponentView;
 import org.jboss.as.ee.component.interceptors.InvocationType;
-import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.component.EJBComponentUnavailableException;
 import org.jboss.as.ejb3.component.interceptors.CancellationFlag;
 import org.jboss.as.ejb3.component.session.SessionBeanComponent;
@@ -33,8 +33,10 @@ import org.jboss.as.ejb3.component.stateful.StatefulSessionComponent;
 import org.jboss.as.ejb3.component.stateless.StatelessSessionComponent;
 import org.jboss.as.ejb3.deployment.DeploymentRepository;
 import org.jboss.as.ejb3.deployment.EjbDeploymentInformation;
+import org.jboss.as.ejb3.logging.EjbLogger;
 import org.jboss.as.ejb3.remote.RemoteAsyncInvocationCancelStatusService;
 import org.jboss.ejb.client.Affinity;
+import org.jboss.ejb.client.AttachmentKeys;
 import org.jboss.ejb.client.EJBClientInvocationContext;
 import org.jboss.ejb.client.EJBLocator;
 import org.jboss.ejb.client.SessionID;
@@ -48,6 +50,7 @@ import org.jboss.remoting3.MessageOutputStream;
 import org.wildfly.security.manager.WildFlySecurityManager;
 import org.xnio.IoUtils;
 
+import javax.ejb.EJBException;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -58,8 +61,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-
-import javax.ejb.EJBException;
 
 /**
  * @author Jaikiran Pai
@@ -206,6 +207,10 @@ public class MethodInvocationMessageHandler extends EJBIdentifierBasedMessageHan
                             if (throwable instanceof EJBComponentUnavailableException) {
                                 EjbLogger.EJB3_INVOCATION_LOGGER.debugf("Cannot handle method invocation: %s on bean: %s due to EJB component unavailability exception. Returning a no such EJB available message back to client", invokedMethod, beanName);
                                 MethodInvocationMessageHandler.this.writeNoSuchEJBFailureMessage(channelAssociation, invocationId, appName, moduleName, distinctName, beanName, viewClassName);
+                                // WFLY-7139
+                            } else if (throwable instanceof ComponentIsStoppedException) {
+                                EjbLogger.EJB3_INVOCATION_LOGGER.debugf("Cannot handle method invocation: %s on bean: %s due to EJB component stopped exception. Returning a no such EJB available message back to client", invokedMethod, beanName);
+                                MethodInvocationMessageHandler.this.writeNoSuchEJBFailureMessage(channelAssociation, invocationId, appName, moduleName, distinctName, beanName, viewClassName);
                             } else {
                                 // write out the failure
                                 Throwable throwableToWrite = throwable;
@@ -292,6 +297,13 @@ public class MethodInvocationMessageHandler extends EJBIdentifierBasedMessageHan
                 if (EJBClientInvocationContext.PRIVATE_ATTACHMENTS_KEY.equals(key)) {
                     final Map<?, ?> privateAttachments = (Map<?, ?>) value;
                     for (final Map.Entry<?, ?> privateAttachment : privateAttachments.entrySet()) {
+                        // according to the specification, session EJB 3.2 4.5.3, transaction context cannot be passed to
+                        // asynchronous calls,
+                        // too bad we have to do this check in this loop, but we cant remove the key from the unmarshalled
+                        // attachments collection because it is unmodifiable
+                        if (privateAttachment.getKey().equals(AttachmentKeys.TRANSACTION_ID_KEY) &&
+                                componentView.isAsynchronous(method))
+                            continue;
                         interceptorContext.putPrivateData(privateAttachment.getKey(), privateAttachment.getValue());
                     }
                 } else {

@@ -33,6 +33,7 @@ public enum XMLAttribute {
 
     CHANNEL(RemoteSiteResourceDefinition.Attribute.CHANNEL),
     CLUSTER(ChannelResourceDefinition.Attribute.CLUSTER),
+    DATA_SOURCE(ProtocolResourceDefinition.Attribute.DATA_SOURCE),
     @Deprecated DEFAULT_EXECUTOR(TransportResourceDefinition.ThreadingAttribute.DEFAULT_EXECUTOR),
     DEFAULT("default"),
     @Deprecated DEFAULT_STACK("default-stack"),
@@ -50,6 +51,7 @@ public enum XMLAttribute {
     SITE(TransportResourceDefinition.Attribute.SITE),
     SOCKET_BINDING(ProtocolResourceDefinition.Attribute.SOCKET_BINDING),
     STACK(RemoteSiteResourceDefinition.DeprecatedAttribute.STACK),
+    STATISTICS_ENABLED(ChannelResourceDefinition.Attribute.STATISTICS_ENABLED),
     @Deprecated THREAD_FACTORY(TransportResourceDefinition.ThreadingAttribute.THREAD_FACTORY),
     @Deprecated TIMER_EXECUTOR(TransportResourceDefinition.ThreadingAttribute.TIMER_EXECUTOR),
     TYPE(ModelDescriptionConstants.TYPE),

@@ -25,8 +25,7 @@ import org.jboss.as.clustering.controller.ParentResourceServiceHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
 import org.jboss.as.clustering.controller.ResourceServiceBuilderFactory;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
-import org.jboss.as.clustering.controller.RestartParentResourceAddStepHandler;
-import org.jboss.as.clustering.controller.RestartParentResourceRemoveStepHandler;
+import org.jboss.as.clustering.controller.RestartParentResourceRegistration;
 import org.jboss.as.clustering.controller.SimpleAliasEntry;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.ModelVersion;
@@ -62,7 +61,7 @@ public class RelayResourceDefinition extends ProtocolResourceDefinition {
         Attribute(String name, ModelType type) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(false)
+                    .setRequired(true)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
         }
@@ -81,7 +80,7 @@ public class RelayResourceDefinition extends ProtocolResourceDefinition {
         PropertyResourceDefinition.buildTransformation(version, builder);
     }
 
-    private final ResourceServiceBuilderFactory<RelayConfiguration> builderFactory = new RelayConfigurationBuilderFactory();
+    private final ResourceServiceBuilderFactory<RelayConfiguration> builderFactory = address -> new RelayConfigurationBuilder(address);
 
     RelayResourceDefinition(ResourceServiceBuilderFactory<ChannelFactory> parentBuilderFactory) {
         super(new Parameters(PATH, new JGroupsResourceDescriptionResolver(WILDCARD_PATH, ProtocolResourceDefinition.WILDCARD_PATH)), parentBuilderFactory);
@@ -97,8 +96,7 @@ public class RelayResourceDefinition extends ProtocolResourceDefinition {
                 .addAttributes(ProtocolResourceDefinition.Attribute.PROPERTIES)
                 ;
         ResourceServiceHandler handler = new ParentResourceServiceHandler<>(this.builderFactory);
-        new RestartParentResourceAddStepHandler<>(this.parentBuilderFactory, descriptor, handler).register(registration);
-        new RestartParentResourceRemoveStepHandler<>(this.parentBuilderFactory, descriptor, handler).register(registration);
+        new RestartParentResourceRegistration<>(this.parentBuilderFactory, descriptor, handler).register(registration);
 
         new RemoteSiteResourceDefinition(this.builderFactory).register(registration);
 

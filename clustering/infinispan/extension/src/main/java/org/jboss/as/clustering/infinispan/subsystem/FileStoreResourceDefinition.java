@@ -22,9 +22,8 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.SimpleAliasEntry;
 import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
@@ -64,7 +63,7 @@ public class FileStoreResourceDefinition extends StoreResourceDefinition {
         Attribute(String name, ModelType type, ModelNode defaultValue) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, type)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDefaultValue(defaultValue)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
@@ -106,9 +105,8 @@ public class FileStoreResourceDefinition extends StoreResourceDefinition {
                 .addAttributes(StoreResourceDefinition.Attribute.class)
                 .addRequiredSingletonChildren(StoreWriteThroughResourceDefinition.PATH)
                 ;
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new FileStoreBuilderFactory());
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(address -> new FileStoreBuilder(address.getParent()));
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
 
         if (this.pathManager != null) {
             ResolvePathHandler pathHandler = ResolvePathHandler.Builder.of(this.pathManager)

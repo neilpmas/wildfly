@@ -22,9 +22,8 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import org.jboss.as.clustering.controller.AddStepHandler;
 import org.jboss.as.clustering.controller.ResourceDescriptor;
-import org.jboss.as.clustering.controller.RemoveStepHandler;
+import org.jboss.as.clustering.controller.SimpleResourceRegistration;
 import org.jboss.as.clustering.controller.ResourceServiceHandler;
 import org.jboss.as.clustering.controller.SimpleAliasEntry;
 import org.jboss.as.clustering.controller.SimpleResourceServiceHandler;
@@ -60,7 +59,7 @@ public class ExpirationResourceDefinition extends ComponentResourceDefinition {
         Attribute(String name, ModelNode defaultValue) {
             this.definition = new SimpleAttributeDefinitionBuilder(name, ModelType.LONG)
                     .setAllowExpression(true)
-                    .setAllowNull(true)
+                    .setRequired(false)
                     .setDefaultValue(defaultValue)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .setMeasurementUnit(MeasurementUnit.MILLISECONDS)
@@ -89,8 +88,7 @@ public class ExpirationResourceDefinition extends ComponentResourceDefinition {
         parentRegistration.registerAlias(LEGACY_PATH, new SimpleAliasEntry(registration));
 
         ResourceDescriptor descriptor = new ResourceDescriptor(this.getResourceDescriptionResolver()).addAttributes(Attribute.class);
-        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(new ExpirationBuilderFactory());
-        new AddStepHandler(descriptor, handler).register(registration);
-        new RemoveStepHandler(descriptor, handler).register(registration);
+        ResourceServiceHandler handler = new SimpleResourceServiceHandler<>(address -> new ExpirationBuilder(address.getParent()));
+        new SimpleResourceRegistration(descriptor, handler).register(registration);
     }
 }
